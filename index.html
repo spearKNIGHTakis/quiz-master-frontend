@@ -1760,11 +1760,13 @@ const singlePlayerSystem = {
 
 // Multiplayer System
 // Real-time Multiplayer System
+// Real-time Multiplayer System with Fallback
 const multiplayerSystem = {
     currentRoom: null,
     players: [],
     gameState: null,
-    socket: null,
+    timer: null,
+    timeLeft: 0,
     
     init() {
         console.log('🎮 Multiplayer system initialized');
@@ -1772,42 +1774,40 @@ const multiplayerSystem = {
     },
     
     setupSocketListeners() {
-        // Listen for real socket events
-        connectionManager.on('playerJoined', (data) => {
-            this.handlePlayerJoined(data);
-        });
-        
-        connectionManager.on('playerLeft', (data) => {
-            this.handlePlayerLeft(data);
-        });
-        
-        connectionManager.on('roomCreated', (data) => {
-            this.handleRoomCreated(data);
-        });
-        
-        connectionManager.on('roomJoined', (data) => {
-            this.handleRoomJoined(data);
-        });
-        
-        connectionManager.on('gameStarted', (data) => {
-            this.handleGameStarted(data);
-        });
-        
-        connectionManager.on('question', (data) => {
-            this.handleQuestionReceived(data);
-        });
-        
-        connectionManager.on('playerAnswered', (data) => {
-            this.handlePlayerAnswered(data);
-        });
-        
-        connectionManager.on('gameEnded', (data) => {
-            this.handleGameEnded(data);
-        });
-        
-        connectionManager.on('roomError', (data) => {
-            categoryManager.showError(data.message);
-        });
+        // Only setup real listeners if connected
+        if (connectionManager.isConnected && connectionManager.socket) {
+            connectionManager.on('playerJoined', (data) => {
+                this.handlePlayerJoined(data);
+            });
+            
+            connectionManager.on('playerLeft', (data) => {
+                this.handlePlayerLeft(data);
+            });
+            
+            connectionManager.on('roomCreated', (data) => {
+                this.handleRoomCreated(data);
+            });
+            
+            connectionManager.on('roomJoined', (data) => {
+                this.handleRoomJoined(data);
+            });
+            
+            connectionManager.on('gameStarted', (data) => {
+                this.handleGameStarted(data);
+            });
+            
+            connectionManager.on('question', (data) => {
+                this.handleQuestionReceived(data);
+            });
+            
+            connectionManager.on('playerAnswered', (data) => {
+                this.handlePlayerAnswered(data);
+            });
+            
+            connectionManager.on('gameEnded', (data) => {
+                this.handleGameEnded(data);
+            });
+        }
     },
     
     async createRoom(settings) {
@@ -1817,33 +1817,59 @@ const multiplayerSystem = {
             const playerName = document.getElementById('mp-player-name').value || 'Player';
             const avatar = avatarSystem.selectedAvatar;
             
-            if (currentState.connectionStatus !== 'connected') {
-                categoryManager.showError('Cannot create room while offline. Please check your connection.');
-                return false;
-            }
+            // Generate room code
+            const roomCode = this.generateRoomCode();
             
-            const roomData = {
-                playerName: playerName,
-                avatar: avatar,
-                settings: settings
+            // Create room locally first
+            this.currentRoom = {
+                code: roomCode,
+                host: playerName,
+                settings: settings,
+                players: [{
+                    id: this.getPlayerId(),
+                    name: playerName,
+                    avatar: avatar,
+                    score: 0,
+                    isHost: true
+                }],
+                status: 'waiting'
             };
             
-            categoryManager.showLoading(true);
-            const result = await connectionManager.emit('createRoom', roomData);
+            this.players = this.currentRoom.players;
             
-            if (result && result.success) {
-                console.log('✅ Room creation request sent');
-                return true;
-            } else {
-                throw new Error(result?.error || 'Failed to create room');
+            // Try to create room on server if connected
+            if (connectionManager.isConnected) {
+                try {
+                    const result = await Promise.race([
+                        connectionManager.emit('createRoom', {
+                            roomCode: roomCode,
+                            playerName: playerName,
+                            avatar: avatar,
+                            settings: settings
+                        }),
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Server timeout')), 3000)
+                        )
+                    ]);
+                    
+                    if (result && result.success) {
+                        console.log('✅ Room created on server');
+                    }
+                } catch (serverError) {
+                    console.log('⚠️ Server creation failed, using local room:', serverError);
+                }
             }
+            
+            this.updateLobbyDisplay();
+            categoryManager.showScreen('multiplayer-lobby');
+            categoryManager.showSuccess(`Room created! Share code: ${roomCode}`);
+            
+            return true;
             
         } catch (error) {
             console.error('Error creating room:', error);
-            categoryManager.showError(error.message || 'Failed to create room. Please try again.');
+            categoryManager.showError('Failed to create room. Please try again.');
             return false;
-        } finally {
-            categoryManager.showLoading(false);
         }
     },
     
@@ -1852,35 +1878,75 @@ const multiplayerSystem = {
             const playerName = document.getElementById('mp-player-name').value || 'Player';
             const avatar = avatarSystem.selectedAvatar;
             
-            if (currentState.connectionStatus !== 'connected') {
-                categoryManager.showError('Cannot join room while offline. Please check your connection.');
-                return false;
-            }
-            
             if (!roomCode || roomCode.length !== 4) {
                 categoryManager.showError('Please enter a valid 4-character room code');
                 return false;
             }
             
-            const joinData = {
-                roomCode: roomCode.toUpperCase(),
-                playerName: playerName,
-                avatar: avatar
+            categoryManager.showLoading(true);
+            
+            // Create local room for demo
+            this.currentRoom = {
+                code: roomCode.toUpperCase(),
+                host: 'Demo Host',
+                settings: {
+                    category: 'primary',
+                    subject: 'mathematics',
+                    difficulty: 'medium',
+                    questionCount: 5
+                },
+                players: [
+                    {
+                        id: 'host_123',
+                        name: 'Demo Host',
+                        avatar: '👨‍💻',
+                        score: 0,
+                        isHost: true
+                    },
+                    {
+                        id: this.getPlayerId(),
+                        name: playerName,
+                        avatar: avatar,
+                        score: 0,
+                        isHost: false
+                    }
+                ],
+                status: 'waiting'
             };
             
-            categoryManager.showLoading(true);
-            const result = await connectionManager.emit('joinRoom', joinData);
+            this.players = this.currentRoom.players;
             
-            if (result && result.success) {
-                console.log('✅ Join room request sent');
-                return true;
-            } else {
-                throw new Error(result?.error || 'Failed to join room');
+            // Try to join on server if connected
+            if (connectionManager.isConnected) {
+                try {
+                    const result = await Promise.race([
+                        connectionManager.emit('joinRoom', {
+                            roomCode: roomCode,
+                            playerName: playerName,
+                            avatar: avatar
+                        }),
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Server timeout')), 3000)
+                        )
+                    ]);
+                    
+                    if (result && result.success) {
+                        console.log('✅ Joined room on server');
+                    }
+                } catch (serverError) {
+                    console.log('⚠️ Server join failed, using local room:', serverError);
+                }
             }
+            
+            this.updateLobbyDisplay();
+            categoryManager.showScreen('multiplayer-lobby');
+            categoryManager.showSuccess(`Joined room: ${roomCode}`);
+            
+            return true;
             
         } catch (error) {
             console.error('Error joining room:', error);
-            categoryManager.showError(error.message || 'Failed to join room. Please check the room code and try again.');
+            categoryManager.showError('Failed to join room. Please check the room code.');
             return false;
         } finally {
             categoryManager.showLoading(false);
@@ -1894,15 +1960,39 @@ const multiplayerSystem = {
                 return;
             }
             
-            const result = await connectionManager.emit('startGame', {
-                roomCode: this.currentRoom.code
-            });
-            
-            if (result && result.success) {
-                console.log('✅ Game start request sent');
-            } else {
-                throw new Error('Failed to start game');
+            if (this.players.length < 1) {
+                categoryManager.showError('Need at least 1 player to start');
+                return;
             }
+            
+            // Get questions for the game
+            const questionResult = await questionManager.getQuestions(this.currentRoom.settings);
+            
+            if (questionResult.questions.length === 0) {
+                categoryManager.showError('No questions available');
+                return;
+            }
+            
+            this.gameState = {
+                currentQuestion: 0,
+                questions: questionResult.questions,
+                players: [...this.players],
+                timePerQuestion: 30
+            };
+            
+            // Try to notify server if connected
+            if (connectionManager.isConnected) {
+                try {
+                    await connectionManager.emit('startGame', {
+                        roomCode: this.currentRoom.code,
+                        questions: questionResult.questions
+                    });
+                } catch (error) {
+                    console.log('⚠️ Server start game failed, continuing locally:', error);
+                }
+            }
+            
+            this.loadQuestion(0);
             
         } catch (error) {
             console.error('Error starting game:', error);
@@ -1912,14 +2002,40 @@ const multiplayerSystem = {
     
     async submitAnswer(questionIndex, answerIndex) {
         try {
-            if (!this.currentRoom) return;
+            if (!this.currentRoom || !this.gameState) return;
             
-            await connectionManager.emit('submitAnswer', {
-                roomCode: this.currentRoom.code,
-                questionIndex: questionIndex,
-                answerIndex: answerIndex,
-                timeRemaining: this.timeLeft || 0
-            });
+            const question = this.gameState.questions[questionIndex];
+            const isCorrect = answerIndex === question.correctAnswer;
+            
+            // Update local player score
+            const currentPlayer = this.players.find(p => p.id === this.getPlayerId());
+            if (currentPlayer && isCorrect) {
+                currentPlayer.score += 10;
+                currentPlayer.hasAnswered = true;
+            }
+            
+            // Update game state players
+            const gamePlayer = this.gameState.players.find(p => p.id === this.getPlayerId());
+            if (gamePlayer && isCorrect) {
+                gamePlayer.score += 10;
+                gamePlayer.hasAnswered = true;
+            }
+            
+            this.updateScoreboard();
+            
+            // Try to notify server if connected
+            if (connectionManager.isConnected) {
+                try {
+                    await connectionManager.emit('submitAnswer', {
+                        roomCode: this.currentRoom.code,
+                        questionIndex: questionIndex,
+                        answerIndex: answerIndex,
+                        isCorrect: isCorrect
+                    });
+                } catch (error) {
+                    console.log('⚠️ Server answer submission failed:', error);
+                }
+            }
             
         } catch (error) {
             console.error('Error submitting answer:', error);
@@ -1927,45 +2043,23 @@ const multiplayerSystem = {
     },
     
     leaveRoom() {
-        if (this.currentRoom) {
-            connectionManager.emit('leaveRoom', { roomCode: this.currentRoom.code });
-            this.currentRoom = null;
-            this.players = [];
-            this.gameState = null;
+        if (this.currentRoom && connectionManager.isConnected) {
+            try {
+                connectionManager.emit('leaveRoom', { roomCode: this.currentRoom.code });
+            } catch (error) {
+                console.log('⚠️ Server leave room failed:', error);
+            }
         }
+        
+        this.currentRoom = null;
+        this.players = [];
+        this.gameState = null;
+        clearInterval(this.timer);
         
         categoryManager.showScreen('multiplayer-setup');
     },
     
-    // Event handlers
-    handleRoomCreated(data) {
-        this.currentRoom = {
-            code: data.roomCode,
-            host: data.hostId,
-            players: data.players,
-            settings: data.settings
-        };
-        
-        this.players = data.players;
-        this.updateLobbyDisplay();
-        categoryManager.showScreen('multiplayer-lobby');
-        categoryManager.showSuccess(`Room created! Share code: ${data.roomCode}`);
-    },
-    
-    handleRoomJoined(data) {
-        this.currentRoom = {
-            code: data.roomCode,
-            host: data.hostId,
-            players: data.players,
-            settings: data.settings
-        };
-        
-        this.players = data.players;
-        this.updateLobbyDisplay();
-        categoryManager.showScreen('multiplayer-lobby');
-        categoryManager.showSuccess(`Joined room: ${data.roomCode}`);
-    },
-    
+    // Event handlers for real-time updates
     handlePlayerJoined(data) {
         if (this.currentRoom && this.currentRoom.code === data.roomCode) {
             this.players.push(data.player);
@@ -1982,23 +2076,36 @@ const multiplayerSystem = {
         }
     },
     
+    handleRoomCreated(data) {
+        // Server confirmed room creation
+        console.log('✅ Room created on server:', data.roomCode);
+    },
+    
+    handleRoomJoined(data) {
+        // Server confirmed room join
+        console.log('✅ Joined room on server:', data.roomCode);
+    },
+    
     handleGameStarted(data) {
-        this.gameState = {
-            currentQuestion: 0,
-            questions: data.questions,
-            players: data.players,
-            timePerQuestion: data.timePerQuestion || 30
-        };
-        
-        this.loadQuestion(0);
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            this.gameState = {
+                currentQuestion: 0,
+                questions: data.questions,
+                players: data.players,
+                timePerQuestion: data.timePerQuestion || 30
+            };
+            this.loadQuestion(0);
+        }
     },
     
     handleQuestionReceived(data) {
-        this.loadQuestion(data.questionIndex);
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            this.loadQuestion(data.questionIndex);
+        }
     },
     
     handlePlayerAnswered(data) {
-        // Update player scores in real-time
+        // Update other players' scores in real-time
         const player = this.players.find(p => p.id === data.playerId);
         if (player) {
             player.score = data.newScore;
@@ -2008,7 +2115,9 @@ const multiplayerSystem = {
     },
     
     handleGameEnded(data) {
-        this.showResults(data.finalScores);
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            this.showResults(data.finalScores);
+        }
     },
     
     updateLobbyDisplay() {
@@ -2031,43 +2140,44 @@ const multiplayerSystem = {
                     <div class="multiplayer-avatar me-2">${player.avatar}</div>
                     <div class="flex-grow-1">
                         <strong>${player.name}</strong>
-                        ${player.id === connectionManager.socket?.id ? '<span class="badge bg-primary ms-2">You</span>' : ''}
+                        ${player.id === this.getPlayerId() ? '<span class="badge bg-primary ms-2">You</span>' : ''}
                     </div>
-                    ${player.id === this.currentRoom?.host ? '<span class="badge bg-warning">Host</span>' : ''}
+                    ${player.isHost ? '<span class="badge bg-warning">Host</span>' : ''}
                     ${player.hasAnswered ? '<span class="badge bg-success ms-2">Answered</span>' : ''}
                 </div>
             `).join('');
         }
         
-        if (startButton) {
-            const isHost = this.currentRoom?.host === connectionManager.socket?.id;
-            const canStart = this.players.length >= 2; // Require at least 2 players
+        if (startButton && this.currentRoom) {
+            const isHost = this.players.find(p => p.id === this.getPlayerId())?.isHost || false;
+            const canStart = this.players.length >= 1;
             
             startButton.style.display = isHost ? 'block' : 'none';
             startButton.disabled = !canStart;
-            
-            if (isHost && !canStart) {
-                startButton.title = 'Need at least 2 players to start';
-            }
         }
     },
     
     loadQuestion(questionIndex) {
         if (!this.gameState || questionIndex >= this.gameState.questions.length) {
+            // Game finished
+            this.showResults(this.gameState.players);
             return;
         }
         
         this.gameState.currentQuestion = questionIndex;
         const question = this.gameState.questions[questionIndex];
         
-        // Reset answered status for all players
+        // Reset answered status for new question
         this.players.forEach(player => {
             player.hasAnswered = false;
         });
         
         // Update UI
+        const categoryName = categoryManager.categories[this.currentRoom.settings.category]?.name || this.currentRoom.settings.category;
+        const subjectName = this.currentRoom.settings.subject.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+        
         document.getElementById('current-subject').textContent = 
-            `Multiplayer - ${this.currentRoom.settings.category} - ${this.currentRoom.settings.subject}`;
+            `Multiplayer - ${categoryName} - ${subjectName}`;
         
         document.getElementById('question-count-display').textContent = 
             `Question ${questionIndex + 1} of ${this.gameState.questions.length}`;
@@ -2115,18 +2225,22 @@ const multiplayerSystem = {
         
         // Visual feedback
         const options = document.querySelectorAll('.option');
-        options.forEach(opt => opt.classList.remove('selected', 'correct', 'incorrect'));
+        options.forEach(opt => {
+            opt.classList.remove('selected', 'correct', 'incorrect');
+            opt.style.pointerEvents = 'none'; // Disable further clicks
+        });
         
         if (options[optionIndex]) {
             options[optionIndex].classList.add('selected');
             options[optionIndex].classList.add(isCorrect ? 'correct' : 'incorrect');
         }
         
+        // Show correct answer
         if (question.correctAnswer >= 0 && question.correctAnswer < options.length) {
             options[question.correctAnswer].classList.add('correct');
         }
         
-        // Submit answer to server
+        // Submit answer
         this.submitAnswer(this.gameState.currentQuestion, optionIndex);
         
         // Play sound
@@ -2136,19 +2250,23 @@ const multiplayerSystem = {
             soundSystem.play('wrong');
         }
         
-        // Disable further interaction
-        options.forEach(opt => {
-            opt.style.pointerEvents = 'none';
-        });
-        
-        // Mark current player as answered
-        const currentPlayer = this.players.find(p => p.id === connectionManager.socket?.id);
-        if (currentPlayer) {
-            currentPlayer.hasAnswered = true;
+        // Show explanation
+        const feedbackElement = document.getElementById('question-feedback');
+        const feedbackText = document.getElementById('feedback-text');
+        if (feedbackElement && feedbackText) {
+            feedbackElement.className = `question-feedback ${isCorrect ? 'correct' : 'incorrect'} show`;
+            feedbackText.textContent = question.explanation || 
+                (isCorrect ? 'Correct! Well done.' : `Incorrect. The right answer is ${String.fromCharCode(65 + question.correctAnswer)}.`);
         }
+        
+        // Auto-advance after delay
+        setTimeout(() => {
+            this.loadQuestion(this.gameState.currentQuestion + 1);
+        }, 3000);
     },
     
     startTimer() {
+        clearInterval(this.timer);
         this.timeLeft = this.gameState.timePerQuestion;
         this.updateTimerDisplay();
         
@@ -2160,6 +2278,9 @@ const multiplayerSystem = {
                 clearInterval(this.timer);
                 // Auto-submit when time runs out
                 this.submitAnswer(this.gameState.currentQuestion, -1);
+                setTimeout(() => {
+                    this.loadQuestion(this.gameState.currentQuestion + 1);
+                }, 1000);
             }
         }, 1000);
     },
@@ -2187,7 +2308,7 @@ const multiplayerSystem = {
                         <span>${player.score} pts</span>
                     </div>
                     <div class="progress" style="height: 5px;">
-                        <div class="progress-bar" style="width: ${Math.min((player.score / 100) * 100, 100)}%"></div>
+                        <div class="progress-bar" style="width: ${Math.min((player.score / (this.gameState?.questions.length * 10)) * 100, 100)}%"></div>
                     </div>
                 </div>
             </div>
@@ -2197,9 +2318,12 @@ const multiplayerSystem = {
     showResults(finalScores) {
         const sortedScores = finalScores.sort((a, b) => b.score - a.score);
         const winner = sortedScores[0];
-        const currentPlayerId = connectionManager.socket?.id;
+        const currentPlayerId = this.getPlayerId();
         
-        document.getElementById('final-score').textContent = `${winner.name} wins!`;
+        const isWinner = winner.id === currentPlayerId;
+        
+        document.getElementById('final-score').textContent = isWinner ? 'You Won! 🏆' : `${winner.name} Wins!`;
+        document.getElementById('points-earned').textContent = this.players.find(p => p.id === currentPlayerId)?.score || 0;
         
         const statsContainer = document.getElementById('performance-stats');
         statsContainer.innerHTML = `
@@ -2222,7 +2346,7 @@ const multiplayerSystem = {
         
         categoryManager.showScreen('results-screen');
         
-        if (winner.id === currentPlayerId) {
+        if (isWinner) {
             document.getElementById('confetti').style.display = 'block';
             soundSystem.play('victory');
             
@@ -2230,8 +2354,28 @@ const multiplayerSystem = {
                 document.getElementById('confetti').style.display = 'none';
             }, 5000);
         }
+    },
+    
+    // Utility methods
+    generateRoomCode() {
+        return Math.random().toString(36).substring(2, 6).toUpperCase();
+    },
+    
+    getPlayerId() {
+        // Generate a consistent player ID for this session
+        if (!window.quizPlayerId) {
+            window.quizPlayerId = 'player_' + Math.random().toString(36).substring(2, 9);
+        }
+        return window.quizPlayerId;
     }
 };
+     
+            
+   
+        
+    
+  
+    
 
 // User Management System
 const userManager = {
