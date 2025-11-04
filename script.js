@@ -1864,4 +1864,410 @@ const questionManager = {
 
         // Initialize the app when the DOM is loaded
         document.addEventListener('DOMContentLoaded', initApp);
+    // User Manager - Phase 1 Implementation
+const userManager = {
+    currentUser: null,
+    authModal: null,
     
+    init() {
+        console.log('👤 Initializing user system...');
+        this.setupAuthModal();
+        this.loadCurrentUser();
+        this.setupEventListeners();
+    },
+    
+    setupAuthModal() {
+        this.authModal = new bootstrap.Modal(document.getElementById('authModal'));
+    },
+    
+    loadCurrentUser() {
+        try {
+            const savedUser = localStorage.getItem('quizmaster_current_user');
+            if (savedUser) {
+                this.currentUser = JSON.parse(savedUser);
+                console.log('✅ User loaded:', this.currentUser.username);
+                this.hideAuthModal();
+                this.updateUI();
+                this.showUserProfile();
+            } else {
+                console.log('ℹ️ No user found, showing auth modal');
+                this.showAuthModal();
+            }
+        } catch (error) {
+            console.error('❌ Error loading user:', error);
+            this.showAuthModal();
+        }
+    },
+    
+    showAuthModal() {
+        // Reset forms
+        document.getElementById('loginForm').reset();
+        document.getElementById('registerForm').reset();
+        
+        // Show login tab by default
+        const loginTab = new bootstrap.Tab(document.getElementById('login-tab'));
+        loginTab.show();
+        
+        this.authModal.show();
+        document.getElementById('category-selection').classList.add('d-none');
+    },
+    
+    hideAuthModal() {
+        this.authModal.hide();
+        document.getElementById('category-selection').classList.remove('d-none');
+    },
+    
+    setupEventListeners() {
+        // Login form
+        document.getElementById('loginForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleLogin();
+        });
+        
+        // Register form
+        document.getElementById('registerForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleRegister();
+        });
+        
+        // Tab switching links
+        document.querySelectorAll('.switch-to-register').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const registerTab = new bootstrap.Tab(document.getElementById('register-tab'));
+                registerTab.show();
+            });
+        });
+        
+        document.querySelectorAll('.switch-to-login').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const loginTab = new bootstrap.Tab(document.getElementById('login-tab'));
+                loginTab.show();
+            });
+        });
+        
+        // Logout button
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            this.handleLogout();
+        });
+        
+        // Edit profile button
+        document.getElementById('edit-profile').addEventListener('click', () => {
+            this.handleEditProfile();
+        });
+    },
+    
+    async handleLogin() {
+        const email = document.getElementById('loginEmail').value;
+        const password = document.getElementById('loginPassword').value;
+        
+        if (!email || !password) {
+            categoryManager.showError('Please fill in all fields');
+            return;
+        }
+        
+        try {
+            categoryManager.showLoading(true);
+            await this.login(email, password);
+            categoryManager.showSuccess('Welcome back!');
+        } catch (error) {
+            categoryManager.showError(error.message);
+        } finally {
+            categoryManager.showLoading(false);
+        }
+    },
+    
+    async handleRegister() {
+        const username = document.getElementById('registerUsername').value;
+        const email = document.getElementById('registerEmail').value;
+        const password = document.getElementById('registerPassword').value;
+        
+        if (!username || !email || !password) {
+            categoryManager.showError('Please fill in all fields');
+            return;
+        }
+        
+        if (password.length < 6) {
+            categoryManager.showError('Password must be at least 6 characters');
+            return;
+        }
+        
+        try {
+            categoryManager.showLoading(true);
+            await this.register(username, email, password);
+            categoryManager.showSuccess('Account created successfully!');
+        } catch (error) {
+            categoryManager.showError(error.message);
+        } finally {
+            categoryManager.showLoading(false);
+        }
+    },
+    
+    async login(email, password) {
+        // Simple demo login - in real app, this would validate against stored users
+        const users = this.getAllUsers();
+        const user = users.find(u => u.email === email);
+        
+        if (!user) {
+            throw new Error('No account found with this email');
+        }
+        
+        // Simple password check (in real app, use proper hashing)
+        if (user.password !== this.simpleHash(password)) {
+            throw new Error('Invalid password');
+        }
+        
+        this.currentUser = user;
+        localStorage.setItem('quizmaster_current_user', JSON.stringify(user));
+        this.hideAuthModal();
+        this.updateUI();
+        this.showUserProfile();
+        
+        return user;
+    },
+    
+    async register(username, email, password) {
+        const users = this.getAllUsers();
+        
+        // Check if email already exists
+        if (users.some(u => u.email === email)) {
+            throw new Error('An account with this email already exists');
+        }
+        
+        // Check if username already exists
+        if (users.some(u => u.username === username)) {
+            throw new Error('Username already taken');
+        }
+        
+        const user = {
+            id: this.generateId(),
+            username,
+            email,
+            password: this.simpleHash(password), // Simple demo hash
+            avatar: this.generateAvatar(),
+            level: 1,
+            experience: 0,
+            stats: {
+                totalQuizzes: 0,
+                totalCorrect: 0,
+                totalQuestions: 0,
+                averageScore: 0,
+                bestScore: 0,
+                totalTime: 0
+            },
+            achievements: [],
+            preferences: {
+                sound: true,
+                theme: 'light'
+            },
+            history: [],
+            createdAt: new Date().toISOString()
+        };
+        
+        users.push(user);
+        localStorage.setItem('quizmaster_users', JSON.stringify(users));
+        localStorage.setItem('quizmaster_current_user', JSON.stringify(user));
+        
+        this.currentUser = user;
+        this.hideAuthModal();
+        this.updateUI();
+        this.showUserProfile();
+        
+        return user;
+    },
+    
+    handleLogout() {
+        if (confirm('Are you sure you want to logout?')) {
+            localStorage.removeItem('quizmaster_current_user');
+            this.currentUser = null;
+            this.showAuthModal();
+            this.hideUserProfile();
+            categoryManager.showSuccess('Logged out successfully');
+        }
+    },
+    
+    handleEditProfile() {
+        // Simple profile editing - just change avatar for now
+        const avatars = ['👨‍💻', '👩‍🚀', '🦸', '👨‍🎓', '👩‍🎨', '🤖', '🐱', '🦊'];
+        const currentIndex = avatars.indexOf(this.currentUser.avatar);
+        const nextIndex = (currentIndex + 1) % avatars.length;
+        
+        this.currentUser.avatar = avatars[nextIndex];
+        this.saveCurrentUser();
+        this.updateUI();
+        categoryManager.showSuccess('Avatar updated!');
+    },
+    
+    updateQuizStats(quizResult) {
+        if (!this.currentUser) return;
+        
+        // Update basic stats
+        this.currentUser.stats.totalQuizzes++;
+        this.currentUser.stats.totalCorrect += quizResult.correctAnswers;
+        this.currentUser.stats.totalQuestions += quizResult.totalQuestions;
+        this.currentUser.stats.totalTime += quizResult.timeTaken;
+        
+        // Calculate average score
+        this.currentUser.stats.averageScore = 
+            (this.currentUser.stats.totalCorrect / this.currentUser.stats.totalQuestions) * 100;
+        
+        // Update best score
+        if (quizResult.score > this.currentUser.stats.bestScore) {
+            this.currentUser.stats.bestScore = quizResult.score;
+        }
+        
+        // Add experience
+        const xpEarned = this.calculateXP(quizResult);
+        this.currentUser.experience += xpEarned;
+        
+        // Check for level up
+        this.checkLevelUp();
+        
+        // Add to history
+        this.currentUser.history.unshift({
+            ...quizResult,
+            timestamp: new Date().toISOString(),
+            xpEarned: xpEarned
+        });
+        
+        // Keep only last 50 history items
+        if (this.currentUser.history.length > 50) {
+            this.currentUser.history = this.currentUser.history.slice(0, 50);
+        }
+        
+        this.saveCurrentUser();
+        this.updateUI();
+        
+        return xpEarned;
+    },
+    
+    calculateXP(quizResult) {
+        const baseXP = quizResult.score * 0.5; // 0.5 XP per point
+        const accuracyBonus = quizResult.accuracy >= 80 ? 25 : 0;
+        const difficultyBonus = {
+            'easy': 10,
+            'medium': 25,
+            'hard': 50
+        }[quizResult.difficulty] || 0;
+        
+        return Math.round(baseXP + accuracyBonus + difficultyBonus);
+    },
+    
+    checkLevelUp() {
+        const xpNeededForNextLevel = this.getXPForLevel(this.currentUser.level + 1);
+        
+        if (this.currentUser.experience >= xpNeededForNextLevel) {
+            this.currentUser.level++;
+            this.onLevelUp();
+        }
+    },
+    
+    getXPForLevel(level) {
+        // Simple exponential progression
+        return Math.floor(100 * Math.pow(1.5, level - 1));
+    },
+    
+    onLevelUp() {
+        // Show level up notification
+        categoryManager.showSuccess(`🎉 Level Up! You reached level ${this.currentUser.level}`);
+        
+        // Award achievement for level milestones
+        if (this.currentUser.level % 5 === 0) {
+            this.awardAchievement(`level_${this.currentUser.level}`);
+        }
+    },
+    
+    awardAchievement(achievementId) {
+        if (!this.currentUser.achievements.includes(achievementId)) {
+            this.currentUser.achievements.push(achievementId);
+            this.saveCurrentUser();
+            this.updateUI();
+        }
+    },
+    
+    updateUI() {
+        if (!this.currentUser) return;
+        
+        // Update profile information
+        document.getElementById('profile-username').textContent = this.currentUser.username;
+        document.getElementById('profile-avatar').textContent = this.currentUser.avatar;
+        document.getElementById('profile-level').textContent = this.currentUser.level;
+        
+        // Update progress
+        const currentXP = this.currentUser.experience;
+        const xpNeeded = this.getXPForLevel(this.currentUser.level + 1);
+        const xpForCurrentLevel = this.getXPForLevel(this.currentUser.level);
+        const progress = ((currentXP - xpForCurrentLevel) / (xpNeeded - xpForCurrentLevel)) * 100;
+        
+        document.getElementById('profile-xp').textContent = currentXP;
+        document.getElementById('profile-xp-needed').textContent = xpNeeded;
+        document.getElementById('profile-next-level').textContent = this.currentUser.level + 1;
+        document.getElementById('profile-progress').style.width = `${Math.min(progress, 100)}%`;
+        
+        // Update stats
+        document.getElementById('profile-quizzes').textContent = this.currentUser.stats.totalQuizzes;
+        document.getElementById('profile-accuracy').textContent = 
+            Math.round(this.currentUser.stats.averageScore || 0) + '%';
+        document.getElementById('profile-achievements').textContent = this.currentUser.achievements.length;
+    },
+    
+    showUserProfile() {
+        document.getElementById('user-profile').classList.remove('d-none');
+        // Move profile to top of the content
+        const profileElement = document.getElementById('user-profile');
+        const parent = profileElement.parentElement;
+        parent.insertBefore(profileElement, parent.firstChild);
+    },
+    
+    hideUserProfile() {
+        document.getElementById('user-profile').classList.add('d-none');
+    },
+    
+    // Utility methods
+    generateId() {
+        return 'user_' + Math.random().toString(36).substr(2, 9);
+    },
+    
+    generateAvatar() {
+        const avatars = ['👨‍💻', '👩‍🚀', '🦸', '👨‍🎓', '👩‍🎨', '🤖', '🐱', '🦊'];
+        return avatars[Math.floor(Math.random() * avatars.length)];
+    },
+    
+    simpleHash(str) {
+        // Simple demo hash - in real app use proper hashing like bcrypt
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+        }
+        return hash.toString();
+    },
+    
+    getAllUsers() {
+        try {
+            return JSON.parse(localStorage.getItem('quizmaster_users')) || [];
+        } catch {
+            return [];
+        }
+    },
+    
+    saveCurrentUser() {
+        if (this.currentUser) {
+            localStorage.setItem('quizmaster_current_user', JSON.stringify(this.currentUser));
+            
+            // Also update in users array
+            const users = this.getAllUsers();
+            const userIndex = users.findIndex(u => u.id === this.currentUser.id);
+            if (userIndex !== -1) {
+                users[userIndex] = this.currentUser;
+                localStorage.setItem('quizmaster_users', JSON.stringify(users));
+            }
+        }
+    },
+    
+    getCurrentUser() {
+        return this.currentUser;
+    }
+};
