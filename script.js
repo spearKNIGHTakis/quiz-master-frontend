@@ -970,38 +970,60 @@ const questionManager = {
             this.finishGame();
         },
         
-        finishGame() {
-            clearInterval(this.timer);
-            
-            let correctAnswers = 0;
-            this.currentGame.questions.forEach((question, index) => {
-                if (this.currentGame.answers[index] && this.currentGame.answers[index].isCorrect) {
-                    correctAnswers++;
-                }
-            });
-            
-            this.currentGame.score = correctAnswers * 10;
-            this.currentGame.endTime = Date.now();
-            
-            const timeTaken = Math.floor((this.currentGame.endTime - this.currentGame.startTime) / 1000);
-            
-            this.awardAchievements(correctAnswers, timeTaken);
-            
-            this.showResults(correctAnswers, timeTaken);
-            
-            if (currentState.connectionStatus === 'connected') {
-                connectionManager.emit('quizCompleted', {
-                    playerName: this.currentGame.playerName,
-                    category: this.currentGame.category,
-                    subject: this.currentGame.subject,
-                    score: this.currentGame.score,
-                    correctAnswers: correctAnswers,
-                    totalQuestions: this.currentGame.questions.length,
-                    timeTaken: timeTaken
-                });
-            }
-        },
+        // In your singlePlayerSystem, update the finishGame method:
+finishGame() {
+    clearInterval(this.timer);
+    
+    let correctAnswers = 0;
+    this.currentGame.questions.forEach((question, index) => {
+        if (this.currentGame.answers[index] && this.currentGame.answers[index].isCorrect) {
+            correctAnswers++;
+        }
+    });
+    
+    this.currentGame.score = correctAnswers * 10;
+    this.currentGame.endTime = Date.now();
+    
+    const timeTaken = Math.floor((this.currentGame.endTime - this.currentGame.startTime) / 1000);
+    const accuracy = (correctAnswers / this.currentGame.questions.length) * 100;
+    
+    // Award achievements
+    this.awardAchievements(correctAnswers, timeTaken);
+    
+    // Update user stats
+    if (userManager.getCurrentUser()) {
+        const quizResult = {
+            category: this.currentGame.category,
+            subject: this.currentGame.subject,
+            score: this.currentGame.score,
+            correctAnswers: correctAnswers,
+            totalQuestions: this.currentGame.questions.length,
+            accuracy: accuracy,
+            timeTaken: timeTaken,
+            difficulty: this.currentGame.difficulty
+        };
         
+        const xpEarned = userManager.updateQuizStats(quizResult);
+        
+        // Show XP earned
+        categoryManager.showSuccess(`+${xpEarned} XP earned!`);
+    }
+    
+    this.showResults(correctAnswers, timeTaken);
+    
+    if (currentState.connectionStatus === 'connected') {
+        connectionManager.emit('quizCompleted', {
+            playerName: this.currentGame.playerName,
+            category: this.currentGame.category,
+            subject: this.currentGame.subject,
+            score: this.currentGame.score,
+            correctAnswers: correctAnswers,
+            totalQuestions: this.currentGame.questions.length,
+            timeTaken: timeTaken
+        });
+    }
+},
+
         showResults(correctAnswers, timeTaken) {
             const totalQuestions = this.currentGame.questions.length;
             const percentage = Math.round((correctAnswers / totalQuestions) * 100);
@@ -1759,21 +1781,28 @@ const questionManager = {
     // ... (rest of the code remains the same)
 
         // Initialize the application
-        async function initApp() {
-            console.log('🚀 Initializing QuizMaster App');
-            
-            // Initialize systems
-            await connectionManager.init();
-            categoryManager.init();
-            singlePlayerSystem.init();
-            avatarSystem.init();
-            multiplayerSystem.init();
-            
-            // Setup event listeners
-            setupEventListeners();
-            
-            console.log('✅ App initialized successfully');
-        }
+       // In your initApp function, add:
+async function initApp() {
+    console.log('🚀 Initializing QuizMaster App');
+    
+    try {
+        // Initialize systems in order
+        await connectionManager.init();
+        userManager.init(); // Add this line
+        categoryManager.init();
+        singlePlayerSystem.init();
+        avatarSystem.init();
+        multiplayerSystem.init();
+        
+        // Setup event listeners
+        setupEventListeners();
+        
+        console.log('✅ App initialized successfully');
+    } catch (error) {
+        console.error('❌ App initialization failed:', error);
+        categoryManager.showError('Failed to initialize app. Some features may not work.');
+    }
+}
         
         function setupEventListeners() {
             // Sound toggle
