@@ -439,6 +439,62 @@
         .option.incorrect {
             animation: highlight 1s ease;
         }
+
+        /* User System Styles */
+.user-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+    border: 3px solid white;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.stat-value {
+    font-weight: bold;
+    margin-bottom: 0.25rem;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    opacity: 0.8;
+}
+
+.level-badge {
+    margin-top: 0.5rem;
+}
+
+/* Auth modal enhancements */
+#authModal .modal-content {
+    border-radius: 15px;
+    border: none;
+}
+
+#authModal .nav-tabs .nav-link {
+    border: none;
+    padding: 12px 20px;
+    font-weight: 500;
+}
+
+#authModal .nav-tabs .nav-link.active {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: white;
+    border-radius: 8px;
+}
+
+.switch-to-register, .switch-to-login {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.switch-to-register:hover, .switch-to-login:hover {
+    text-decoration: underline;
+}
     </style>
 </head>
 <body>
