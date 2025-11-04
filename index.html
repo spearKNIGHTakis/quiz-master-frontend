@@ -1,1588 +1,635 @@
-// Configuration
-const BACKEND_URL = 'https://quiz-app-backend-3g8p.onrender.com'; // Your Render URL
-
-// App State
-let currentState = {
-    screen: 'category-selection',
-    category: null,
-    subject: null,
-    gameMode: 'single',
-    gameId: null,
-    isHost: false,
-    players: [],
-    questions: [],
-    currentQuestion: 0,
-    answers: [],
-    score: 0
-};
-
-// Sound System
-const soundSystem = {
-    enabled: true,
-    sounds: {
-        correct: document.getElementById('correct-sound'),
-        wrong: document.getElementById('wrong-sound'),
-        gameStart: document.getElementById('game-start-sound'),
-        countdown: document.getElementById('countdown-sound'),
-        victory: document.getElementById('victory-sound')
-    },
-    
-    play(soundName) {
-        if (!this.enabled) return;
-        
-        try {
-            const sound = this.sounds[soundName];
-            if (sound) {
-                sound.currentTime = 0;
-                sound.play().catch(e => console.log('Sound play failed:', e));
-            }
-        } catch (error) {
-            console.log('Sound error:', error);
-        }
-    },
-    
-    toggle() {
-        this.enabled = !this.enabled;
-        const button = document.getElementById('toggle-sound');
-        const icon = button.querySelector('i');
-        
-        if (this.enabled) {
-            button.innerHTML = '<i class="fas fa-volume-up me-1"></i> Sound On';
-            button.classList.remove('btn-outline-secondary');
-            button.classList.add('btn-outline-success');
-        } else {
-            button.innerHTML = '<i class="fas fa-volume-mute me-1"></i> Sound Off';
-            button.classList.remove('btn-outline-success');
-            button.classList.add('btn-outline-secondary');
-        }
-    }
-};
-
-// Avatar System
-const avatarSystem = {
-    avatars: [
-        { emoji: '👨‍💻', name: 'Technologist' },
-        { emoji: '👩‍🚀', name: 'Astronaut' },
-        { emoji: '🦸', name: 'Superhero' },
-        { emoji: '👨‍🎓', name: 'Student' },
-        { emoji: '👩‍🎨', name: 'Artist' },
-        { emoji: '🧙', name: 'Wizard' },
-        { emoji: '🤖', name: 'Robot' },
-        { emoji: '🐱', name: 'Cat' },
-        { emoji: '🦊', name: 'Fox' },
-        { emoji: '🐼', name: 'Panda' },
-        { emoji: '🦁', name: 'Lion' },
-        { emoji: '🐯', name: 'Tiger' }
-    ],
-    
-    selectedAvatar: '👨‍💻',
-    
-    init() {
-        this.renderAvatarSelection();
-        this.loadSavedAvatar();
-    },
-    
-    renderAvatarSelection() {
-        const container = document.getElementById('avatar-selection');
-        if (!container) return;
-        
-        container.innerHTML = this.avatars.map(avatar => `
-            <div class="avatar-option ${avatar.emoji === this.selectedAvatar ? 'selected' : ''}" 
-                 data-avatar="${avatar.emoji}" 
-                 title="${avatar.name}">
-                <div class="avatar-display" style="font-size: 2rem; cursor: pointer; padding: 5px; border-radius: 10px; border: 3px solid transparent;">
-                    ${avatar.emoji}
-                </div>
-            </div>
-        `).join('');
-        
-        // Add click handlers
-        container.querySelectorAll('.avatar-option').forEach(option => {
-            option.addEventListener('click', () => {
-                this.selectAvatar(option.dataset.avatar);
-            });
-        });
-    },
-    
-    selectAvatar(avatarEmoji) {
-        this.selectedAvatar = avatarEmoji;
-        this.renderAvatarSelection();
-        this.saveAvatar();
-    },
-    
-    saveAvatar() {
-        localStorage.setItem('selectedAvatar', this.selectedAvatar);
-    },
-    
-    loadSavedAvatar() {
-        const saved = localStorage.getItem('selectedAvatar');
-        if (saved) {
-            this.selectedAvatar = saved;
-        }
-    }
-};
-
-// Achievements System
-const achievementsSystem = {
-    achievements: [
-        {
-            id: 'first_win',
-            name: 'First Victory',
-            icon: '🏆',
-            description: 'Win your first game',
-            earned: false,
-            check: (gameState) => gameState.score > 0
-        },
-        {
-            id: 'speed_demon',
-            name: 'Speed Demon',
-            icon: '⚡',
-            description: 'Answer a question in under 5 seconds',
-            earned: false,
-            check: (gameState) => gameState.fastAnswers > 0
-        },
-        {
-            id: 'perfect_score',
-            name: 'Perfect Score',
-            icon: '⭐',
-            description: 'Get 100% correct answers',
-            earned: false,
-            check: (gameState) => gameState.score === gameState.totalQuestions
-        },
-        {
-            id: 'multiplayer_master',
-            name: 'Multiplayer Master',
-            icon: '👥',
-            description: 'Win a multiplayer game',
-            earned: false,
-            check: (gameState) => gameState.gameMode === 'multi' && gameState.isWinner
-        },
-        {
-            id: 'subject_expert',
-            name: 'Subject Expert',
-            icon: '📚',
-            description: 'Play 3 different subjects',
-            earned: false,
-            check: (gameState) => gameState.playedSubjects >= 3
-        },
-        {
-            id: 'quiz_marathon',
-            name: 'Quiz Marathon',
-            icon: '🏃',
-            description: 'Play 5 games total',
-            earned: false,
-            check: (gameState) => gameState.totalGamesPlayed >= 5
-        }
-    ],
-
-    load() {
-        const saved = localStorage.getItem('quizAchievements');
-        if (saved) {
-            const savedAchievements = JSON.parse(saved);
-            this.achievements.forEach(ach => {
-                const saved = savedAchievements.find(a => a.id === ach.id);
-                if (saved) ach.earned = saved.earned;
-            });
-        }
-    },
-
-    save() {
-        localStorage.setItem('quizAchievements', JSON.stringify(this.achievements));
-    },
-
-    checkAchievements(gameState) {
-        const newAchievements = [];
-        
-        this.achievements.forEach(achievement => {
-            if (!achievement.earned && achievement.check(gameState)) {
-                achievement.earned = true;
-                newAchievements.push(achievement);
-            }
-        });
-        
-        if (newAchievements.length > 0) {
-            this.save();
-            this.showNewAchievements(newAchievements);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuizMaster - Interactive Learning Platform</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+    <style>
+        :root {
+            --primary: #4361ee;
+            --secondary: #3a0ca3;
+            --success: #4cc9f0;
+            --danger: #f72585;
+            --warning: #f8961e;
+            --info: #4895ef;
         }
         
-        return newAchievements;
-    },
-
-    showNewAchievements(newAchievements) {
-        newAchievements.forEach((achievement, index) => {
-            setTimeout(() => {
-                this.showAchievementNotification(achievement);
-            }, index * 1000);
-        });
-    },
-
-    showAchievementNotification(achievement) {
-        const notification = document.createElement('div');
-        notification.className = 'alert alert-success achievement-notification';
-        notification.innerHTML = `
-            <div class="d-flex align-items-center">
-                <div class="me-3" style="font-size: 2rem;">${achievement.icon}</div>
-                <div>
-                    <h5 class="mb-1">Achievement Unlocked!</h5>
-                    <p class="mb-0">${achievement.name} - ${achievement.description}</p>
-                </div>
-            </div>
-        `;
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px 0;
+        }
         
-        notification.style.cssText = `
+        .app-container {
+            min-height: 100vh;
+        }
+        
+        .card {
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border: none;
+            overflow: hidden;
+        }
+        
+        .card-header {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            font-weight: 600;
+            border-bottom: none;
+        }
+        
+        .category-card, .subject-card {
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 3px solid transparent;
+        }
+        
+        .category-card:hover, .subject-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+        
+        .category-card.selected, .subject-card.selected {
+            border-color: var(--primary) !important;
+            background: linear-gradient(135deg, #f8f9ff, #e9ecef);
+        }
+        
+        .category-card {
+            min-height: 200px;
+        }
+        
+        .subject-card {
+            min-height: 150px;
+        }
+        
+        .option {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        
+        .option:hover {
+            background-color: #e9ecef;
+        }
+        
+        .option.selected {
+            background-color: var(--primary);
+            color: white;
+            border-color: var(--secondary);
+        }
+        
+        .option.correct {
+            background-color: #28a745;
+            color: white;
+            border-color: #1e7e34;
+        }
+        
+        .option.incorrect {
+            background-color: #dc3545;
+            color: white;
+            border-color: #c82333;
+        }
+        
+        .timer {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+        
+        .progress {
+            height: 10px;
+            border-radius: 5px;
+        }
+        
+        .multiplayer-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: var(--primary);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        
+        .player-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            margin: 5px 0;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .confetti-container {
             position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1050;
-            min-width: 300px;
-            animation: slideInRight 0.5s ease-out;
-        `;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+            display: none;
+        }
         
-        document.body.appendChild(notification);
+        .status {
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: 500;
+        }
         
-        setTimeout(() => {
-            notification.style.animation = 'slideOutRight 0.5s ease-in';
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.parentNode.removeChild(notification);
-                }
-            }, 500);
-        }, 5000);
-    },
-
-    displayAchievements() {
-        const container = document.getElementById('achievements-list');
-        if (!container) return;
+        .status.connected { 
+            background: #d4edda; 
+            color: #155724;
+            border-left: 4px solid #28a745;
+        }
         
-        container.innerHTML = this.achievements.map(achievement => `
-            <div class="col-md-6 mb-3">
-                <div class="achievement-card ${achievement.earned ? 'earned' : 'locked'} p-3 rounded">
-                    <div class="d-flex align-items-center">
-                        <div class="achievement-icon me-3" style="font-size: 2rem;">
-                            ${achievement.earned ? achievement.icon : '🔒'}
+        .status.disconnected { 
+            background: #f8d7da; 
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .option-content {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .option-letter {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #e9ecef;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+        
+        .option.selected .option-letter {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .option.correct .option-letter {
+            background: #28a745;
+            color: white;
+        }
+        
+        .option.incorrect .option-letter {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .badge {
+            font-size: 0.7rem;
+            margin: 0 2px;
+        }
+        
+        .achievement-card.earned {
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+            border: 2px solid #28a745;
+        }
+        
+        .achievement-card.locked {
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            opacity: 0.7;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .pulse {
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes slideOutRight {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+        
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .category-card, .subject-card {
+                min-height: 180px;
+            }
+            
+            .category-card .fa-3x {
+                font-size: 2em;
+            }
+            
+            .subject-card .fa-2x {
+                font-size: 1.5em;
+            }
+            
+            .option-content {
+                gap: 8px;
+            }
+            
+            .option-letter {
+                width: 25px;
+                height: 25px;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="container">
+            <div class="card">
+                <div class="card-header text-center py-3">
+                    <h1 class="mb-0"><i class="fas fa-graduation-cap me-2"></i>QuizMaster</h1>
+                    <p class="mb-0 mt-1 small opacity-75">Interactive Learning Platform</p>
+                </div>
+                <div class="card-body p-4">
+                    <!-- Connection Status -->
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div id="connection-status" class="status disconnected">
+                            <i class="fas fa-times-circle me-2"></i>Disconnected from server
                         </div>
-                        <div class="flex-grow-1">
-                            <h6 class="mb-1">${achievement.name}</h6>
-                            <p class="mb-0 small text-muted">${achievement.description}</p>
-                            ${achievement.earned ? 
-                                '<span class="badge bg-success mt-1">Earned!</span>' : 
-                                '<span class="badge bg-secondary mt-1">Locked</span>'
-                            }
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `).join('');
-    }
-};
-
-// Category and Subject Management
-const categoryManager = {
-    categories: {},
-    currentCategory: null,
-    currentSubject: null,
-    
-    async init() {
-        await this.loadCategories();
-        this.setupEventListeners();
-    },
-    
-    async loadCategories() {
-        try {
-            const response = await fetch(`${BACKEND_URL}/api/categories`);
-            this.categories = await response.json();
-            console.log('✅ Categories loaded:', this.categories);
-        } catch (error) {
-            console.error('❌ Failed to load categories:', error);
-            // Fallback categories
-            this.categories = {
-                primary: {
-                    name: "Primary Level",
-                    subjects: ["mathematics", "science", "english", "social_studies"],
-                    difficulties: ["easy", "medium"]
-                },
-                highschool: {
-                    name: "High School", 
-                    subjects: ["mathematics", "physics", "chemistry", "biology", "history", "geography"],
-                    difficulties: ["easy", "medium", "hard"]
-                },
-                tertiary: {
-                    name: "Tertiary Level",
-                    subjects: ["programming", "business", "engineering", "medicine", "law", "economics"],
-                    difficulties: ["medium", "hard"]
-                }
-            };
-        }
-    },
-    
-    setupEventListeners() {
-        // Category selection
-        document.querySelectorAll('.category-card').forEach(card => {
-            card.addEventListener('click', () => {
-                this.selectCategory(card.dataset.category);
-            });
-        });
-        
-        // Back to categories
-        document.getElementById('back-to-categories').addEventListener('click', () => {
-            this.showCategorySelection();
-        });
-    },
-    
-    selectCategory(categoryId) {
-        this.currentCategory = categoryId;
-        const category = this.categories[categoryId];
-        
-        if (!category) {
-            console.error('Category not found:', categoryId);
-            return;
-        }
-        
-        console.log('🎯 Category selected:', categoryId, category);
-        this.showSubjectSelection(category);
-    },
-    
-    showSubjectSelection(category) {
-        // Update category title
-        document.getElementById('category-title').textContent = `Select Subject - ${category.name}`;
-        
-        // Load subjects
-        const container = document.getElementById('subjects-container');
-        container.innerHTML = '';
-        
-        const subjectNames = {
-            mathematics: { icon: 'fa-calculator', color: 'primary', name: 'Mathematics' },
-            science: { icon: 'fa-flask', color: 'success', name: 'Science' },
-            english: { icon: 'fa-language', color: 'info', name: 'English' },
-            social_studies: { icon: 'fa-globe-americas', color: 'warning', name: 'Social Studies' },
-            physics: { icon: 'fa-atom', color: 'danger', name: 'Physics' },
-            chemistry: { icon: 'fa-vial', color: 'success', name: 'Chemistry' },
-            biology: { icon: 'fa-dna', color: 'success', name: 'Biology' },
-            history: { icon: 'fa-landmark', color: 'warning', name: 'History' },
-            geography: { icon: 'fa-map', color: 'info', name: 'Geography' },
-            programming: { icon: 'fa-code', color: 'dark', name: 'Programming' },
-            business: { icon: 'fa-chart-line', color: 'success', name: 'Business' },
-            engineering: { icon: 'fa-cogs', color: 'info', name: 'Engineering' },
-            medicine: { icon: 'fa-heartbeat', color: 'danger', name: 'Medicine' },
-            law: { icon: 'fa-gavel', color: 'warning', name: 'Law' },
-            economics: { icon: 'fa-money-bill-wave', color: 'success', name: 'Economics' }
-        };
-        
-        category.subjects.forEach(subjectId => {
-            const subject = subjectNames[subjectId] || { icon: 'fa-book', color: 'secondary', name: subjectId };
-            
-            const col = document.createElement('div');
-            col.className = 'col-md-4 col-sm-6 mb-4';
-            col.innerHTML = `
-                <div class="card subject-card h-100" data-subject="${subjectId}">
-                    <div class="card-body text-center d-flex flex-column">
-                        <i class="fas ${subject.icon} fa-2x mb-3 text-${subject.color}"></i>
-                        <h5 class="card-title">${subject.name}</h5>
-                        <p class="card-text small flex-grow-1">Test your ${subject.name.toLowerCase()} knowledge</p>
-                    </div>
-                </div>
-            `;
-            container.appendChild(col);
-        });
-        
-        // Update difficulty options based on category
-        this.updateDifficultyOptions(category.difficulties);
-        
-        // Add subject selection event listeners
-        setTimeout(() => {
-            document.querySelectorAll('.subject-card').forEach(card => {
-                card.addEventListener('click', () => {
-                    this.selectSubject(card.dataset.subject);
-                });
-            });
-        }, 100);
-        
-        // Show subject selection screen
-        this.showScreen('subject-selection');
-    },
-    
-    selectSubject(subjectId) {
-        this.currentSubject = subjectId;
-        
-        // Update visual selection
-        document.querySelectorAll('.subject-card').forEach(card => {
-            card.classList.remove('selected', 'border-primary');
-        });
-        
-        const selectedCard = document.querySelector(`[data-subject="${subjectId}"]`);
-        if (selectedCard) {
-            selectedCard.classList.add('selected', 'border-primary');
-        }
-        
-        console.log('🎯 Subject selected:', subjectId);
-    },
-    
-    updateDifficultyOptions(availableDifficulties) {
-        const select = document.getElementById('difficulty-select');
-        select.innerHTML = '';
-        
-        availableDifficulties.forEach(diff => {
-            const option = document.createElement('option');
-            option.value = diff;
-            option.textContent = diff.charAt(0).toUpperCase() + diff.slice(1);
-            select.appendChild(option);
-        });
-    },
-    
-    showCategorySelection() {
-        this.showScreen('category-selection');
-        this.currentCategory = null;
-        this.currentSubject = null;
-    },
-    
-    showScreen(screenName) {
-        // Hide all screens
-        const screens = ['category-selection', 'subject-selection', 'multiplayer-setup', 'multiplayer-lobby', 'quiz-screen', 'results-screen'];
-        screens.forEach(screen => {
-            const element = document.getElementById(screen);
-            if (element) element.classList.add('d-none');
-        });
-        
-        // Show target screen
-        const targetScreen = document.getElementById(screenName);
-        if (targetScreen) {
-            targetScreen.classList.remove('d-none');
-            currentState.screen = screenName;
-        }
-    },
-    
-    getCurrentSettings() {
-        return {
-            category: this.currentCategory,
-            subject: this.currentSubject,
-            difficulty: document.getElementById('difficulty-select').value,
-            questionCount: parseInt(document.getElementById('question-count').value),
-            gameMode: document.querySelector('input[name="gameMode"]:checked').value
-        };
-    }
-};
-
-// Enhanced Single Player System with API
-const singlePlayerSystem = {
-    currentGame: null,
-    timer: null,
-    timeLeft: 0,
-    isInitialized: false,
-    
-    init() {
-        console.log('🎮 Initializing single player system...');
-        this.isInitialized = true;
-        console.log('✅ Single player system ready');
-    },
-    
-    async startGame(category, subject, playerName, avatar, difficulty, questionCount) {
-        console.log('🎯 Starting single player game with API:', { 
-            category, subject, difficulty, questionCount 
-        });
-        
-        try {
-            // Fetch questions from API
-            const questions = await this.fetchQuestions(category, subject, difficulty, questionCount);
-            
-            if (!questions || questions.length === 0) {
-                throw new Error('No questions available for this subject');
-            }
-            
-            this.currentGame = {
-                category: category,
-                subject: subject,
-                playerName: playerName,
-                avatar: avatar,
-                questions: questions,
-                currentQuestion: 0,
-                answers: [],
-                score: 0,
-                startTime: Date.now(),
-                timePerQuestion: 30,
-                stats: {
-                    correctAnswers: 0,
-                    totalTime: 0,
-                    fastestAnswer: null,
-                    slowestAnswer: null
-                }
-            };
-            
-            console.log('✅ Game started with', questions.length, 'questions');
-            
-            this.loadQuestion(0);
-            this.startTimer();
-            this.trackGameStart();
-            
-            if (window.soundSystem) {
-                window.soundSystem.play('gameStart');
-            }
-            
-            return true;
-            
-        } catch (error) {
-            console.error('❌ Error starting game:', error);
-            alert('Error starting game: ' + error.message);
-            return false;
-        }
-    },
-    
-    async fetchQuestions(category, subject, difficulty, amount) {
-        try {
-            const response = await fetch(
-                `${BACKEND_URL}/api/questions?category=${category}&subject=${subject}&difficulty=${difficulty}&amount=${amount}`
-            );
-            
-            const data = await response.json();
-            
-            if (data.success && data.questions) {
-                console.log('✅ Questions fetched from API:', data.questions.length);
-                return data.questions;
-            } else {
-                throw new Error(data.error || 'Failed to fetch questions');
-            }
-        } catch (error) {
-            console.error('❌ API fetch failed:', error);
-            // Use fallback questions
-            return this.getFallbackQuestions(category, subject).slice(0, amount);
-        }
-    },
-    
-    getFallbackQuestions(category, subject) {
-        const fallbackQuestions = {
-            primary: {
-                mathematics: [
-                    {
-                        question: "What is 5 + 7?",
-                        options: ["11", "12", "13", "14"],
-                        correct: 1,
-                        explanation: "5 + 7 equals 12",
-                        source: "fallback"
-                    },
-                    {
-                        question: "How many sides does a triangle have?",
-                        options: ["2", "3", "4", "5"],
-                        correct: 1,
-                        explanation: "A triangle has 3 sides",
-                        source: "fallback"
-                    }
-                ],
-                science: [
-                    {
-                        question: "Which animal lays eggs?",
-                        options: ["Dog", "Cat", "Bird", "Cow"],
-                        correct: 2,
-                        explanation: "Birds lay eggs",
-                        source: "fallback"
-                    }
-                ],
-                english: [
-                    {
-                        question: "What is the past tense of 'run'?",
-                        options: ["Running", "Runned", "Ran", "Runs"],
-                        correct: 2,
-                        explanation: "The past tense of run is ran",
-                        source: "fallback"
-                    }
-                ],
-                social_studies: [
-                    {
-                        question: "What is the capital of the United States?",
-                        options: ["New York", "Los Angeles", "Washington D.C.", "Chicago"],
-                        correct: 2,
-                        explanation: "Washington D.C. is the capital of the United States",
-                        source: "fallback"
-                    }
-                ]
-            },
-            highschool: {
-                mathematics: [
-                    {
-                        question: "What is the value of π (pi) approximately?",
-                        options: ["3.14", "2.71", "1.61", "4.13"],
-                        correct: 0,
-                        explanation: "π is approximately 3.14159",
-                        source: "fallback"
-                    }
-                ],
-                physics: [
-                    {
-                        question: "What is the unit of force?",
-                        options: ["Joule", "Watt", "Newton", "Volt"],
-                        correct: 2,
-                        explanation: "Force is measured in Newtons",
-                        source: "fallback"
-                    }
-                ],
-                chemistry: [
-                    {
-                        question: "What is the chemical symbol for water?",
-                        options: ["H2O", "CO2", "O2", "NaCl"],
-                        correct: 0,
-                        explanation: "Water is H2O - two hydrogen atoms and one oxygen atom",
-                        source: "fallback"
-                    }
-                ],
-                biology: [
-                    {
-                        question: "What is the powerhouse of the cell?",
-                        options: ["Nucleus", "Mitochondria", "Ribosome", "Cell membrane"],
-                        correct: 1,
-                        explanation: "Mitochondria produce energy for the cell",
-                        source: "fallback"
-                    }
-                ],
-                history: [
-                    {
-                        question: "In which year did World War II end?",
-                        options: ["1944", "1945", "1946", "1947"],
-                        correct: 1,
-                        explanation: "World War II ended in 1945",
-                        source: "fallback"
-                    }
-                ],
-                geography: [
-                    {
-                        question: "What is the longest river in the world?",
-                        options: ["Amazon River", "Nile River", "Yangtze River", "Mississippi River"],
-                        correct: 1,
-                        explanation: "The Nile River is the longest river in the world",
-                        source: "fallback"
-                    }
-                ]
-            },
-            tertiary: {
-                programming: [
-                    {
-                        question: "What does HTML stand for?",
-                        options: ["Hyper Text Markup Language", "High Tech Modern Language", "Hyper Transfer Markup Language", "Home Tool Markup Language"],
-                        correct: 0,
-                        explanation: "HTML stands for Hyper Text Markup Language",
-                        source: "fallback"
-                    }
-                ],
-                business: [
-                    {
-                        question: "What does ROI stand for in business?",
-                        options: ["Return on Investment", "Rate of Interest", "Return of Income", "Risk of Investment"],
-                        correct: 0,
-                        explanation: "ROI stands for Return on Investment",
-                        source: "fallback"
-                    }
-                ],
-                engineering: [
-                    {
-                        question: "What is the SI unit of electrical resistance?",
-                        options: ["Volt", "Ampere", "Ohm", "Watt"],
-                        correct: 2,
-                        explanation: "Electrical resistance is measured in Ohms",
-                        source: "fallback"
-                    }
-                ],
-                medicine: [
-                    {
-                        question: "What does DNA stand for?",
-                        options: ["Deoxyribonucleic Acid", "Digital Network Analysis", "Dynamic Neural Activity", "Diagnostic Nuclear Assessment"],
-                        correct: 0,
-                        explanation: "DNA stands for Deoxyribonucleic Acid",
-                        source: "fallback"
-                    }
-                ],
-                law: [
-                    {
-                        question: "What is the highest court in the United States?",
-                        options: ["District Court", "Appeals Court", "Supreme Court", "Circuit Court"],
-                        correct: 2,
-                        explanation: "The Supreme Court is the highest court in the US",
-                        source: "fallback"
-                    }
-                ],
-                economics: [
-                    {
-                        question: "What does GDP stand for?",
-                        options: ["Gross Domestic Product", "General Domestic Production", "Government Development Program", "Global Development Protocol"],
-                        correct: 0,
-                        explanation: "GDP stands for Gross Domestic Product",
-                        source: "fallback"
-                    }
-                ]
-            }
-        };
-
-        return fallbackQuestions[category]?.[subject] || fallbackQuestions.primary.mathematics;
-    },
-    
-    loadQuestion(questionIndex) {
-        console.log('📖 Loading question:', questionIndex);
-        
-        if (!this.currentGame) {
-            console.error('❌ No current game found');
-            return;
-        }
-        
-        if (questionIndex >= this.currentGame.questions.length) {
-            console.log('🏁 No more questions, finishing game');
-            this.finishGame();
-            return;
-        }
-        
-        this.currentGame.currentQuestion = questionIndex;
-        const question = this.currentGame.questions[questionIndex];
-        
-        console.log('📝 Current question:', question.question);
-        
-        // Update UI elements
-        this.updateQuestionUI(questionIndex, question);
-        this.updateNavigation();
-        this.resetTimer();
-        
-        console.log('✅ Question loaded successfully');
-    },
-    
-    updateQuestionUI(questionIndex, question) {
-        // Update subject title
-        const subjectElement = document.getElementById('current-subject');
-        if (subjectElement) {
-            subjectElement.textContent = 
-                `${this.currentGame.subject.charAt(0).toUpperCase() + this.currentGame.subject.slice(1)} Quiz`;
-        }
-        
-        // Update question counter
-        const countElement = document.getElementById('question-count');
-        if (countElement) {
-            countElement.textContent = 
-                `Question ${questionIndex + 1} of ${this.currentGame.questions.length}`;
-        }
-        
-        // Update progress bar
-        const progress = ((questionIndex + 1) / this.currentGame.questions.length) * 100;
-        const progressBar = document.getElementById('progress-bar');
-        if (progressBar) {
-            progressBar.style.width = `${progress}%`;
-        }
-        
-        // Update question text
-        const questionElement = document.getElementById('question-text');
-        if (questionElement) {
-            questionElement.textContent = question.question;
-        }
-        
-        // Load options
-        this.loadOptions(question);
-    },
-    
-    loadOptions(question) {
-        const optionsContainer = document.getElementById('options-container');
-        if (!optionsContainer) {
-            console.error('❌ Options container not found');
-            return;
-        }
-        
-        optionsContainer.innerHTML = '';
-        
-        question.options.forEach((option, i) => {
-            const optionElement = document.createElement('div');
-            optionElement.className = 'option';
-            optionElement.innerHTML = `
-                <div class="option-content">
-                    <span class="option-letter">${String.fromCharCode(65 + i)}</span>
-                    <span class="option-text">${option}</span>
-                </div>
-            `;
-            optionElement.addEventListener('click', () => {
-                console.log('🎯 Option selected:', i);
-                this.selectOption(i);
-            });
-            optionsContainer.appendChild(optionElement);
-        });
-        
-        console.log('✅ Options loaded:', question.options.length);
-    },
-    
-    selectOption(selectedIndex) {
-        if (!this.currentGame) return;
-        
-        const currentIndex = this.currentGame.currentQuestion;
-        const question = this.currentGame.questions[currentIndex];
-        const isCorrect = selectedIndex === question.correct;
-        const answerTime = this.currentGame.timePerQuestion - this.timeLeft;
-        
-        // Record answer
-        this.currentGame.answers[currentIndex] = {
-            selected: selectedIndex,
-            correct: question.correct,
-            isCorrect: isCorrect,
-            timeTaken: answerTime,
-            timestamp: Date.now()
-        };
-        
-        // Update stats
-        if (isCorrect) {
-            this.currentGame.stats.correctAnswers++;
-            this.currentGame.score += this.calculatePoints(answerTime);
-            
-            // Track fastest/slowest answers
-            if (!this.currentGame.stats.fastestAnswer || answerTime < this.currentGame.stats.fastestAnswer.time) {
-                this.currentGame.stats.fastestAnswer = { time: answerTime, question: question.question };
-            }
-            if (!this.currentGame.stats.slowestAnswer || answerTime > this.currentGame.stats.slowestAnswer.time) {
-                this.currentGame.stats.slowestAnswer = { time: answerTime, question: question.question };
-            }
-        }
-        
-        // Visual feedback
-        const options = document.querySelectorAll('.option');
-        options.forEach((option, index) => {
-            option.classList.remove('selected', 'correct', 'incorrect');
-            
-            if (index === selectedIndex) {
-                option.classList.add('selected');
-                option.classList.add(isCorrect ? 'correct' : 'incorrect');
-            }
-            
-            if (index === question.correct && !isCorrect) {
-                option.classList.add('correct');
-            }
-        });
-        
-        // Play sound
-        if (window.soundSystem) {
-            window.soundSystem.play(isCorrect ? 'correct' : 'wrong');
-        }
-        
-        // Auto-advance after delay
-        setTimeout(() => {
-            this.nextQuestion();
-        }, 1500);
-    },
-    
-    nextQuestion() {
-        if (!this.currentGame) return;
-        
-        const nextIndex = this.currentGame.currentQuestion + 1;
-        if (nextIndex < this.currentGame.questions.length) {
-            this.loadQuestion(nextIndex);
-        } else {
-            this.finishGame();
-        }
-    },
-    
-    prevQuestion() {
-        if (!this.currentGame || this.currentGame.currentQuestion === 0) return;
-        
-        const prevIndex = this.currentGame.currentQuestion - 1;
-        this.loadQuestion(prevIndex);
-    },
-    
-    startTimer() {
-        this.resetTimer();
-        this.timeLeft = this.currentGame.timePerQuestion;
-        this.updateTimerDisplay();
-        
-        this.timer = setInterval(() => {
-            this.timeLeft--;
-            this.updateTimerDisplay();
-            
-            if (this.timeLeft <= 0) {
-                clearInterval(this.timer);
-                this.handleTimeUp();
-            }
-            
-            // Visual warning when time is running out
-            if (this.timeLeft === 5) {
-                document.getElementById('time-left').classList.add('text-danger', 'pulse');
-                if (window.soundSystem) {
-                    window.soundSystem.play('countdown');
-                }
-            }
-        }, 1000);
-    },
-    
-    resetTimer() {
-        if (this.timer) {
-            clearInterval(this.timer);
-        }
-        this.timeLeft = this.currentGame.timePerQuestion;
-        const timerElement = document.getElementById('time-left');
-        if (timerElement) {
-            timerElement.classList.remove('text-danger', 'pulse');
-        }
-        this.updateTimerDisplay();
-    },
-    
-    updateTimerDisplay() {
-        const timerElement = document.getElementById('time-left');
-        if (timerElement) {
-            timerElement.textContent = this.timeLeft;
-            
-            // Color coding
-            if (this.timeLeft <= 5) {
-                timerElement.className = 'text-danger fw-bold';
-            } else if (this.timeLeft <= 10) {
-                timerElement.className = 'text-warning fw-bold';
-            } else {
-                timerElement.className = 'text-primary';
-            }
-        }
-    },
-    
-    handleTimeUp() {
-        if (!this.currentGame) return;
-        
-        const currentIndex = this.currentGame.currentQuestion;
-        const question = this.currentGame.questions[currentIndex];
-        
-        // Record as incorrect due to timeout
-        this.currentGame.answers[currentIndex] = {
-            selected: null,
-            correct: question.correct,
-            isCorrect: false,
-            timeTaken: this.currentGame.timePerQuestion,
-            timestamp: Date.now(),
-            timedOut: true
-        };
-        
-        // Show correct answer
-        const options = document.querySelectorAll('.option');
-        options.forEach((option, index) => {
-            if (index === question.correct) {
-                option.classList.add('correct');
-            }
-        });
-        
-        // Play timeout sound
-        if (window.soundSystem) {
-            window.soundSystem.play('wrong');
-        }
-        
-        // Auto-advance after delay
-        setTimeout(() => {
-            this.nextQuestion();
-        }, 2000);
-    },
-    
-    finishGame() {
-        clearInterval(this.timer);
-        
-        // Calculate final stats
-        this.currentGame.stats.totalTime = Date.now() - this.currentGame.startTime;
-        this.currentGame.stats.accuracy = (this.currentGame.stats.correctAnswers / this.currentGame.questions.length) * 100;
-        this.currentGame.stats.averageTime = this.currentGame.answers.reduce((sum, answer) => sum + answer.timeTaken, 0) / this.currentGame.answers.length;
-        
-        // Save game results
-        this.saveGameResults();
-        
-        // Show results
-        this.showResults();
-        
-        // Check achievements
-        this.checkAchievements();
-        
-        console.log('🎮 Single player game completed:', this.currentGame);
-    },
-    
-    showResults() {
-        if (!this.currentGame) return;
-        
-        // Update results screen
-        document.getElementById('final-score').textContent = 
-            `${this.currentGame.stats.correctAnswers}/${this.currentGame.questions.length}`;
-        document.getElementById('points-earned').textContent = this.currentGame.score;
-        
-        // Show detailed stats
-        this.showDetailedStats();
-        
-        // Show achievements
-        if (window.achievementsSystem) {
-            window.achievementsSystem.displayAchievements();
-        }
-        
-        // Show game history
-        if (window.gameHistorySystem) {
-            window.gameHistorySystem.displayHistory();
-            window.gameHistorySystem.showPerformanceStats();
-        }
-        
-        // Show confetti for good scores
-        if (this.currentGame.stats.accuracy >= 80) {
-            document.getElementById('confetti').style.display = 'block';
-            setTimeout(() => {
-                document.getElementById('confetti').style.display = 'none';
-            }, 5000);
-            
-            if (window.soundSystem) {
-                window.soundSystem.play('victory');
-            }
-        }
-        
-        // Switch to results screen
-        categoryManager.showScreen('results-screen');
-    },
-    
-    showDetailedStats() {
-        const leaderboardList = document.getElementById('leaderboard-list');
-        if (!leaderboardList) return;
-        
-        leaderboardList.innerHTML = `
-            <div class="player-item bg-light">
-                <div class="d-flex justify-content-between align-items-center w-100">
-                    <div class="d-flex align-items-center">
-                        <span class="badge bg-primary me-3">1</span>
-                        <div class="multiplayer-avatar me-3">${this.currentGame.avatar}</div>
-                        <div>
-                            <strong>${this.currentGame.playerName}</strong>
-                            <span class="badge bg-primary ms-2">You</span>
+                        <div class="sound-controls">
+                            <button id="toggle-sound" class="btn btn-sm btn-outline-success">
+                                <i class="fas fa-volume-up me-1"></i> Sound On
+                            </button>
                         </div>
                     </div>
-                    <div class="text-end">
-                        <strong class="fs-5">${this.currentGame.score}</strong>
-                        <div class="text-muted small">points</div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Detailed Stats -->
-            <div class="mt-4 p-3 bg-light rounded">
-                <h6 class="mb-3">📊 Game Statistics</h6>
-                <div class="row text-center">
-                    <div class="col-4">
-                        <div class="fw-bold text-primary">${this.currentGame.stats.accuracy.toFixed(1)}%</div>
-                        <small class="text-muted">Accuracy</small>
-                    </div>
-                    <div class="col-4">
-                        <div class="fw-bold text-success">${Math.floor(this.currentGame.stats.totalTime / 1000)}s</div>
-                        <small class="text-muted">Total Time</small>
-                    </div>
-                    <div class="col-4">
-                        <div class="fw-bold text-info">${this.currentGame.stats.averageTime.toFixed(1)}s</div>
-                        <small class="text-muted">Avg/Question</small>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Question Review -->
-            <div class="mt-3">
-                <h6 class="mb-2">📝 Question Review</h6>
-                ${this.currentGame.questions.map((question, index) => {
-                    const answer = this.currentGame.answers[index];
-                    const isCorrect = answer?.isCorrect;
-                    const userAnswer = answer?.selected !== null ? question.options[answer.selected] : 'Time Out';
-                    const correctAnswer = question.options[question.correct];
-                    
-                    return `
-                        <div class="question-review-item p-2 border-bottom ${isCorrect ? 'bg-success bg-opacity-10' : 'bg-danger bg-opacity-10'}">
-                            <div class="fw-bold">Q${index + 1}: ${question.question}</div>
-                            <div class="small">
-                                <span class="${isCorrect ? 'text-success' : 'text-danger'}">
-                                    Your answer: ${userAnswer} ${isCorrect ? '✓' : '✗'}
-                                </span>
-                                ${!isCorrect ? `<br><span class="text-success">Correct: ${correctAnswer}</span>` : ''}
-                                <br><span class="text-muted">Time: ${answer?.timeTaken}s</span>
+
+                    <!-- Category Selection Screen -->
+                    <div id="category-selection">
+                        <h2 class="text-center mb-4">Choose Your Education Level</h2>
+                        <div class="row justify-content-center">
+                            <!-- Primary Level -->
+                            <div class="col-md-4 mb-4">
+                                <div class="card category-card h-100" data-category="primary">
+                                    <div class="card-body text-center d-flex flex-column">
+                                        <i class="fas fa-pencil-alt fa-3x mb-3 text-primary"></i>
+                                        <h4 class="card-title">Primary Level</h4>
+                                        <p class="card-text flex-grow-1">Grades 1-6<br>Basic Mathematics, Science, English</p>
+                                        <div class="mt-2">
+                                            <span class="badge bg-success">Easy</span>
+                                            <span class="badge bg-warning">Medium</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- High School -->
+                            <div class="col-md-4 mb-4">
+                                <div class="card category-card h-100" data-category="highschool">
+                                    <div class="card-body text-center d-flex flex-column">
+                                        <i class="fas fa-graduation-cap fa-3x mb-3 text-info"></i>
+                                        <h4 class="card-title">High School</h4>
+                                        <p class="card-text flex-grow-1">Grades 7-12<br>Advanced Sciences, Mathematics, History</p>
+                                        <div class="mt-2">
+                                            <span class="badge bg-success">Easy</span>
+                                            <span class="badge bg-warning">Medium</span>
+                                            <span class="badge bg-danger">Hard</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Tertiary Level -->
+                            <div class="col-md-4 mb-4">
+                                <div class="card category-card h-100" data-category="tertiary">
+                                    <div class="card-body text-center d-flex flex-column">
+                                        <i class="fas fa-university fa-3x mb-3 text-success"></i>
+                                        <h4 class="card-title">Tertiary Level</h4>
+                                        <p class="card-text flex-grow-1">College & University<br>Specialized subjects, Professional topics</p>
+                                        <div class="mt-2">
+                                            <span class="badge bg-warning">Medium</span>
+                                            <span class="badge bg-danger">Hard</span>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
-    },
-    
-    calculatePoints(answerTime) {
-        // Base points + time bonus (faster answers get more points)
-        const basePoints = 10;
-        const timeBonus = Math.max(0, Math.floor((this.currentGame.timePerQuestion - answerTime) / 2));
-        return basePoints + timeBonus;
-    },
-    
-    updateNavigation() {
-        const currentIndex = this.currentGame.currentQuestion;
-        const totalQuestions = this.currentGame.questions.length;
-        
-        document.getElementById('prev-question').disabled = currentIndex === 0;
-        
-        if (currentIndex === totalQuestions - 1) {
-            document.getElementById('next-question').classList.add('d-none');
-            document.getElementById('submit-quiz').classList.remove('d-none');
-        } else {
-            document.getElementById('next-question').classList.remove('d-none');
-            document.getElementById('submit-quiz').classList.add('d-none');
-        }
-    },
-    
-    saveGameResults() {
-        const gameHistory = JSON.parse(localStorage.getItem('singlePlayerHistory') || '[]');
-        gameHistory.unshift({
-            category: this.currentGame.category,
-            subject: this.currentGame.subject,
-            score: this.currentGame.score,
-            correctAnswers: this.currentGame.stats.correctAnswers,
-            totalQuestions: this.currentGame.questions.length,
-            totalTime: this.currentGame.stats.totalTime,
-            date: new Date().toISOString(),
-            playerName: this.currentGame.playerName
-        });
-        
-        // Keep only last 50 games
-        if (gameHistory.length > 50) {
-            gameHistory.splice(50);
-        }
-        
-        localStorage.setItem('singlePlayerHistory', JSON.stringify(gameHistory));
-    },
-    
-    checkAchievements() {
-        if (window.achievementsSystem && this.currentGame) {
-            const gameState = {
-                score: this.currentGame.stats.correctAnswers,
-                totalQuestions: this.currentGame.questions.length,
-                gameMode: 'single',
-                isWinner: true,
-                fastAnswers: this.currentGame.answers.filter(a => a.timeTaken < 5).length,
-                playedSubjects: parseInt(localStorage.getItem('playedSubjects') || '0'),
-                totalGamesPlayed: parseInt(localStorage.getItem('totalGamesPlayed') || '0')
-            };
-            
-            window.achievementsSystem.checkAchievements(gameState);
-        }
-    },
-    
-    trackGameStart() {
-        // Track played subjects
-        const playedSubjects = JSON.parse(localStorage.getItem('playedSubjectsList') || '[]');
-        const subjectKey = `${this.currentGame.category}-${this.currentGame.subject}`;
-        if (!playedSubjects.includes(subjectKey)) {
-            playedSubjects.push(subjectKey);
-            localStorage.setItem('playedSubjectsList', JSON.stringify(playedSubjects));
-            localStorage.setItem('playedSubjects', playedSubjects.length);
-        }
-        
-        // Track total games
-        const totalGames = parseInt(localStorage.getItem('totalGamesPlayed') || '0') + 1;
-        localStorage.setItem('totalGamesPlayed', totalGames.toString());
-    }
-};
-
-// Game History System
-const gameHistorySystem = {
-    displayHistory() {
-        const historyContainer = document.getElementById('game-history');
-        if (!historyContainer) return;
-        
-        const history = JSON.parse(localStorage.getItem('singlePlayerHistory') || '[]');
-        
-        if (history.length === 0) {
-            historyContainer.innerHTML = '<p class="text-muted text-center">No games played yet</p>';
-            return;
-        }
-        
-        historyContainer.innerHTML = history.slice(0, 5).map(game => `
-            <div class="history-item p-2 border-bottom">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>${game.subject}</strong>
-                        <br>
-                        <small class="text-muted">${new Date(game.date).toLocaleDateString()}</small>
                     </div>
-                    <div class="text-end">
-                        <span class="badge ${game.correctAnswers === game.totalQuestions ? 'bg-success' : 'bg-primary'}">
-                            ${game.correctAnswers}/${game.totalQuestions}
-                        </span>
-                        <br>
-                        <small class="text-muted">${Math.floor(game.totalTime / 1000)}s</small>
+
+                    <!-- Subject Selection Screen -->
+                    <div id="subject-selection" class="d-none">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2 id="category-title">Select Subject</h2>
+                            <button id="back-to-categories" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left me-2"></i>Back to Levels
+                            </button>
+                        </div>
+                        
+                        <div class="row" id="subjects-container">
+                            <!-- Subjects will be loaded dynamically -->
+                        </div>
+                        
+                        <!-- Difficulty Selection -->
+                        <div class="row mt-4">
+                            <div class="col-md-6 mx-auto">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0"><i class="fas fa-sliders-h me-2"></i>Quiz Settings</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <label class="form-label">Difficulty Level</label>
+                                            <select id="difficulty-select" class="form-select">
+                                                <option value="easy">Easy</option>
+                                                <option value="medium" selected>Medium</option>
+                                                <option value="hard">Hard</option>
+                                            </select>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Number of Questions</label>
+                                            <select id="question-count" class="form-select">
+                                                <option value="5">5 Questions</option>
+                                                <option value="10" selected>10 Questions</option>
+                                                <option value="15">15 Questions</option>
+                                                <option value="20">20 Questions</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="text-center mt-4">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="gameMode" id="singlePlayer" value="single" checked>
+                                <label class="form-check-label" for="singlePlayer">
+                                    <i class="fas fa-user me-1"></i> Single Player
+                                </label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="gameMode" id="multiPlayer" value="multi">
+                                <label class="form-check-label" for="multiPlayer">
+                                    <i class="fas fa-users me-1"></i> Multiplayer
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="text-center mt-4">
+                            <div class="row justify-content-center">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Your Name</label>
+                                        <input type="text" id="player-name" class="form-control" placeholder="Enter your name" value="Player">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Choose Your Avatar</label>
+                                        <div id="avatar-selection" class="d-flex flex-wrap gap-2 justify-content-center">
+                                            <!-- Avatars will be populated by JavaScript -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button id="start-quiz" class="btn btn-primary btn-lg px-5">
+                                <i class="fas fa-play me-2"></i>Start Quiz
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Multiplayer Setup Screen -->
+                    <div id="multiplayer-setup" class="d-none text-center">
+                        <h2 class="mb-4">Multiplayer Setup</h2>
+                        <div class="row justify-content-center">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Your Name</label>
+                                    <input type="text" id="mp-player-name" class="form-control" placeholder="Enter your name" value="Player">
+                                </div>
+                                <div class="d-grid gap-2">
+                                    <button id="create-game" class="btn btn-primary btn-lg">
+                                        <i class="fas fa-plus me-2"></i>Create New Game
+                                    </button>
+                                    <div class="my-3">OR</div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Game Code</label>
+                                        <input type="text" id="game-code" class="form-control" placeholder="Enter game code">
+                                    </div>
+                                    <button id="join-game" class="btn btn-success btn-lg">
+                                        <i class="fas fa-sign-in-alt me-2"></i>Join Existing Game
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Multiplayer Lobby -->
+                    <div id="multiplayer-lobby" class="d-none">
+                        <div class="text-center mb-4">
+                            <h2>Game Lobby</h2>
+                            <p class="lead">Game Code: <strong id="game-code-display" class="fs-3">XXXX</strong></p>
+                            <p>Share this code with other players to join</p>
+                        </div>
+                        
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-users me-2"></i>Players</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="players-list">
+                                    <!-- Players will appear here -->
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="text-center">
+                            <button id="start-game" class="btn btn-success btn-lg">
+                                <i class="fas fa-play me-2"></i>Start Game
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Quiz Screen -->
+                    <div id="quiz-screen" class="d-none">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <div>
+                                <h3 id="current-subject" class="mb-0">Loading Quiz...</h3>
+                                <span class="badge bg-primary" id="question-count">Question 1 of 10</span>
+                            </div>
+                            <div class="timer">
+                                <i class="fas fa-clock me-2"></i><span id="time-left">30</span>s
+                            </div>
+                        </div>
+                        
+                        <div class="progress mb-4">
+                            <div id="progress-bar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        
+                        <!-- Multiplayer Status -->
+                        <div id="multiplayer-status" class="mb-4 d-none">
+                            <h5><i class="fas fa-users me-2"></i>Players Progress</h5>
+                            <div id="players-progress">
+                                <!-- Player progress will appear here -->
+                            </div>
+                        </div>
+                        
+                        <div class="card question-card">
+                            <div class="card-body">
+                                <h4 id="question-text" class="card-title">Loading question...</h4>
+                                <div id="options-container" class="mt-4">
+                                    <!-- Options will appear here -->
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between mt-4">
+                            <button id="prev-question" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left me-2"></i>Previous
+                            </button>
+                            <button id="next-question" class="btn btn-primary">
+                                Next Question <i class="fas fa-arrow-right ms-2"></i>
+                            </button>
+                            <button id="submit-quiz" class="btn btn-success d-none">
+                                <i class="fas fa-check me-2"></i>Submit Quiz
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Results Screen -->
+                    <div id="results-screen" class="d-none">
+                        <div class="text-center mb-5">
+                            <h2>Quiz Completed! 🎉</h2>
+                            <div class="display-4 fw-bold text-primary mb-2" id="final-score">0/10</div>
+                            <p class="lead">You earned <span id="points-earned" class="fw-bold">0</span> points</p>
+                            
+                            <div class="mt-4">
+                                <span class="badge bg-primary me-2"><i class="fas fa-star me-1"></i>Quiz Master</span>
+                                <span class="badge bg-success me-2"><i class="fas fa-bolt me-1"></i>Speed Demon</span>
+                            </div>
+                        </div>
+                        
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-trophy me-2"></i>Leaderboard</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="leaderboard-list">
+                                    <!-- Leaderboard will appear here -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-trophy me-2"></i>Your Achievements</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="achievements-list" class="row">
+                                    <!-- Achievements will appear here -->
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row mt-4">
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-chart-line me-2"></i>Performance Summary</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div id="performance-stats">
+                                            <!-- Stats will be populated by JavaScript -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-history me-2"></i>Game History</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div id="game-history">
+                                            <!-- History will be populated by JavaScript -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="text-center mt-4">
+                            <button id="play-again" class="btn btn-primary btn-lg me-3">
+                                <i class="fas fa-redo me-2"></i>Play Again
+                            </button>
+                            <button id="back-to-menu" class="btn btn-outline-primary">
+                                <i class="fas fa-home me-2"></i>Main Menu
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        `).join('');
-    },
-    
-    showPerformanceStats() {
-        const statsContainer = document.getElementById('performance-stats');
-        if (!statsContainer) return;
-        
-        const stats = this.getStats();
-        
-        if (stats) {
-            statsContainer.innerHTML = `
-                <div class="row text-center">
-                    <div class="col-6 mb-3">
-                        <div class="fw-bold text-primary fs-4">${stats.totalGames}</div>
-                        <small class="text-muted">Games Played</small>
-                    </div>
-                    <div class="col-6 mb-3">
-                        <div class="fw-bold text-success fs-4">${stats.accuracy}%</div>
-                        <small class="text-muted">Overall Accuracy</small>
-                    </div>
-                    <div class="col-12">
-                        <small class="text-muted">Favorite Subject: <strong>${stats.favoriteSubject}</strong></small>
-                    </div>
-                </div>
-            `;
-        }
-    },
-    
-    getStats() {
-        const history = JSON.parse(localStorage.getItem('singlePlayerHistory') || '[]');
-        if (history.length === 0) return null;
-        
-        const totalGames = history.length;
-        const totalCorrect = history.reduce((sum, game) => sum + game.correctAnswers, 0);
-        const totalQuestions = history.reduce((sum, game) => sum + game.totalQuestions, 0);
-        const favoriteSubject = this.getFavoriteSubject(history);
-        
-        return {
-            totalGames,
-            accuracy: ((totalCorrect / totalQuestions) * 100).toFixed(1),
-            favoriteSubject,
-            totalPlayTime: history.reduce((sum, game) => sum + game.totalTime, 0)
-        };
-    },
-    
-    getFavoriteSubject(history) {
-        const subjectCount = {};
-        history.forEach(game => {
-            const key = game.subject;
-            subjectCount[key] = (subjectCount[key] || 0) + 1;
-        });
-        
-        return Object.keys(subjectCount).reduce((a, b) => 
-            subjectCount[a] > subjectCount[b] ? a : b
-        );
-    }
-};
-
-// Connection Manager
-const connectionManager = {
-    isConnected: false,
-    reconnectAttempts: 0,
-    maxReconnectAttempts: 5,
-    
-    init() {
-        this.setupSocketConnection();
-    },
-    
-    setupSocketConnection() {
-        console.log('🔗 Connecting to server:', BACKEND_URL);
-        
-        try {
-            window.socket = io(BACKEND_URL, {
-                transports: ['websocket', 'polling'],
-                reconnection: true,
-                reconnectionAttempts: this.maxReconnectAttempts,
-                reconnectionDelay: 1000
-            });
-
-            this.setupSocketEvents();
-        } catch (error) {
-            console.error('❌ Failed to initialize socket:', error);
-            this.handleConnectionError('Failed to connect to server');
-        }
-    },
-    
-    setupSocketEvents() {
-        const socket = window.socket;
-        
-        socket.on('connect', () => {
-            console.log('✅ Connected to server with ID:', socket.id);
-            this.isConnected = true;
-            this.reconnectAttempts = 0;
-            this.updateConnectionStatus(true);
-        });
-        
-        socket.on('disconnect', (reason) => {
-            console.log('❌ Disconnected from server. Reason:', reason);
-            this.isConnected = false;
-            this.updateConnectionStatus(false, reason);
-        });
-        
-        socket.on('connect_error', (error) => {
-            console.error('❌ Connection error:', error.message);
-            this.reconnectAttempts++;
-            this.handleConnectionError(error.message);
-        });
-        
-        socket.on('reconnect_attempt', (attempt) => {
-            console.log(`🔄 Reconnection attempt ${attempt}/${this.maxReconnectAttempts}`);
-            this.updateConnectionStatus(false, `Reconnecting... (${attempt}/${this.maxReconnectAttempts})`);
-        });
-        
-        socket.on('reconnect', (attempt) => {
-            console.log('✅ Reconnected successfully after', attempt, 'attempts');
-            this.isConnected = true;
-            this.reconnectAttempts = 0;
-            this.updateConnectionStatus(true);
-        });
-        
-        socket.on('game-created', (data) => {
-            currentState.gameId = data.gameId;
-            currentState.isHost = true;
-            currentState.players = data.game.players;
-            categoryManager.showScreen('multiplayer-lobby');
-            updateLobbyPlayers();
-        });
-
-        socket.on('player-joined', (data) => {
-            currentState.players = data.players;
-            updateLobbyPlayers();
-        });
-
-        socket.on('game-started', (data) => {
-            currentState.questions = data.questions;
-            currentState.players = data.players;
-            categoryManager.showScreen('quiz-screen');
-            // For multiplayer, you would load the first question here
-        });
-
-        socket.on('player-progress', (data) => {
-            currentState.players = data.players;
-            // Update multiplayer progress display
-        });
-
-        socket.on('error', (data) => {
-            alert('Error: ' + data.message);
-        });
-    },
-    
-    updateConnectionStatus(connected, message = '') {
-        const statusElement = document.getElementById('connection-status');
-        if (!statusElement) return;
-        
-        if (connected) {
-            statusElement.className = 'status connected';
-            statusElement.innerHTML = '<i class="fas fa-check-circle me-2"></i>Connected to server';
-        } else {
-            statusElement.className = 'status disconnected';
-            statusElement.innerHTML = `<i class="fas fa-times-circle me-2"></i>Disconnected${message ? ': ' + message : ''}`;
-        }
-    },
-    
-    handleConnectionError(message) {
-        console.error('Connection error:', message);
-        this.updateConnectionStatus(false, message);
-    }
-};
-
-// Multiplayer Functions
-function startMultiplayerGame(settings, playerName, avatar) {
-    if (window.socket && window.socket.connected) {
-        window.socket.emit('create-game', {
-            category: settings.category,
-            subject: settings.subject,
-            difficulty: settings.difficulty,
-            amount: settings.questionCount,
-            playerName: playerName,
-            avatar: avatar
-        });
-        categoryManager.showScreen('multiplayer-setup');
-    } else {
-        alert('Not connected to server. Please check your connection.');
-    }
-}
-
-function updateLobbyPlayers() {
-    const playersList = document.getElementById('players-list');
-    if (!playersList) return;
-    
-    playersList.innerHTML = currentState.players.map(player => `
-        <div class="player-item">
-            <div class="multiplayer-avatar me-3" style="font-size: 1.5rem;">${player.avatar}</div>
-            <div>
-                <strong>${player.name}</strong>
-                ${player.id === window.socket.id ? '<span class="badge bg-primary ms-2">You</span>' : ''}
             </div>
         </div>
-    `).join('');
+    </div>
+
+    <!-- Confetti Animation -->
+    <div class="confetti-container" id="confetti">
+        <lottie-player 
+            src="https://assets10.lottiefiles.com/packages/lf20_obhph3sh.json" 
+            background="transparent" 
+            speed="1" 
+            style="width: 100%; height: 100%;" 
+            loop 
+            autoplay>
+        </lottie-player>
+    </div>
+
+    <!-- Sound Effects -->
+    <audio id="correct-sound" preload="auto">
+        <source src="https://assets.mixkit.co/sfx/preview/mixkit-correct-answer-tone-2870.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="wrong-sound" preload="auto">
+        <source src="https://assets.mixkit.co/sfx/preview/mixkit-wrong-answer-fail-notification-946.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="game-start-sound" preload="auto">
+        <source src="https://assets.mixkit.co/sfx/preview/mixkit-game-show-intro-331.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="countdown-sound" preload="auto">
+        <source src="https://assets.mixkit.co/sfx/preview/mixkit-unlock-game-notification-253.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="victory-sound" preload="auto">
+        <source src="https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3" type="audio/mpeg">
+    </audio>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     
-    document.getElementById('game-code-display').textContent = currentState.gameId;
-}
-
-// Event Listeners
-document.getElementById('start-quiz').addEventListener('click', startQuiz);
-document.getElementById('create-game').addEventListener('click', createGame);
-document.getElementById('join-game').addEventListener('click', joinGame);
-document.getElementById('start-game').addEventListener('click', startGame);
-document.getElementById('play-again').addEventListener('click', playAgain);
-document.getElementById('back-to-menu').addEventListener('click', backToMenu);
-document.getElementById('next-question').addEventListener('click', nextQuestion);
-document.getElementById('prev-question').addEventListener('click', prevQuestion);
-document.getElementById('submit-quiz').addEventListener('click', finishQuiz);
-document.getElementById('toggle-sound').addEventListener('click', () => {
-    soundSystem.toggle();
-});
-
-function startQuiz() {
-    const settings = categoryManager.getCurrentSettings();
-    
-    if (!settings.category || !settings.subject) {
-        alert('Please select both education level and subject!');
-        return;
-    }
-
-    const playerName = document.getElementById('player-name').value || 'Player';
-    const avatar = window.avatarSystem ? window.avatarSystem.selectedAvatar : '👨‍💻';
-
-    if (settings.gameMode === 'multi') {
-        // Multiplayer with API
-        startMultiplayerGame(settings, playerName, avatar);
-    } else {
-        // Single player with API
-        window.singlePlayerSystem.startGame(
-            settings.category,
-            settings.subject, 
-            playerName,
-            avatar,
-            settings.difficulty,
-            settings.questionCount
-        ).then(success => {
-            if (success) {
-                categoryManager.showScreen('quiz-screen');
-                document.getElementById('multiplayer-status').classList.add('d-none');
-            }
-        });
-    }
-}
-
-function createGame() {
-    const playerName = document.getElementById('mp-player-name').value || 'Player';
-    const settings = categoryManager.getCurrentSettings();
-    const avatar = window.avatarSystem ? window.avatarSystem.selectedAvatar : '👨‍💻';
-    
-    window.socket.emit('create-game', {
-        category: settings.category,
-        subject: settings.subject,
-        difficulty: settings.difficulty,
-        amount: settings.questionCount,
-        playerName: playerName,
-        avatar: avatar
-    });
-}
-
-function joinGame() {
-    const gameCode = document.getElementById('game-code').value;
-    const playerName = document.getElementById('mp-player-name').value || 'Player';
-    const avatar = window.avatarSystem ? window.avatarSystem.selectedAvatar : '👨‍💻';
-    
-    if (!gameCode) {
-        alert('Please enter a game code');
-        return;
-    }
-    
-    window.socket.emit('join-game', {
-        gameId: gameCode,
-        playerName: playerName,
-        avatar: avatar
-    });
-}
-
-function startGame() {
-    window.socket.emit('start-game', { gameId: currentState.gameId });
-}
-
-function nextQuestion() {
-    if (currentState.gameMode === 'multi') {
-        // Multiplayer logic would go here
-    } else {
-        window.singlePlayerSystem.nextQuestion();
-    }
-}
-
-function prevQuestion() {
-    if (currentState.gameMode === 'multi') {
-        // Multiplayer logic would go here
-    } else {
-        window.singlePlayerSystem.prevQuestion();
-    }
-}
-
-function finishQuiz() {
-    if (currentState.gameMode === 'multi') {
-        // Multiplayer logic would go here
-    } else {
-        window.singlePlayerSystem.finishGame();
-    }
-}
-
-function playAgain() {
-    if (currentState.gameMode === 'multi') {
-        categoryManager.showScreen('lobby');
-    } else {
-        const settings = categoryManager.getCurrentSettings();
-        const playerName = document.getElementById('player-name').value || 'Player';
-        const avatar = window.avatarSystem ? window.avatarSystem.selectedAvatar : '👨‍💻';
-        
-        window.singlePlayerSystem.startGame(
-            settings.category,
-            settings.subject,
-            playerName,
-            avatar,
-            settings.difficulty,
-            settings.questionCount
-        ).then(success => {
-            if (success) {
-                categoryManager.showScreen('quiz-screen');
-            }
-        });
-    }
-}
-
-function backToMenu() {
-    currentState = {
-        screen: 'category-selection',
-        category: null,
-        subject: null,
-        gameMode: 'single',
-        gameId: null,
-        isHost: false,
-        players: [],
-        questions: [],
-        currentQuestion: 0,
-        answers: [],
-        score: 0
-    };
-    categoryManager.showScreen('category-selection');
-}
-
-// Initialize everything when page loads
-document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 Initializing QuizMaster App...');
-    
-    // Initialize all systems
-    await categoryManager.init();
-    avatarSystem.init();
-    singlePlayerSystem.init();
-    achievementsSystem.load();
-    connectionManager.init();
-    gameHistorySystem.displayHistory();
-    
-    // Make systems globally available for debugging
-    window.singlePlayerSystem = singlePlayerSystem;
-    window.categoryManager = categoryManager;
-    window.achievementsSystem = achievementsSystem;
-    window.gameHistorySystem = gameHistorySystem;
-    window.soundSystem = soundSystem;
-    
-    console.log('🎉 QuizMaster App initialized successfully!');
-    
-    // Test function for debugging
-    window.testSinglePlayer = function() {
-        console.log('🧪 Testing single player mode...');
-        const settings = {
-            category: 'primary',
-            subject: 'mathematics',
-            difficulty: 'easy',
-            questionCount: 5
-        };
-        const playerName = 'Test Player';
-        const avatar = '👨‍💻';
-        
-        singlePlayerSystem.startGame(
-            settings.category,
-            settings.subject,
-            playerName,
-            avatar,
-            settings.difficulty,
-            settings.questionCount
-        ).then(success => {
-            if (success) {
-                categoryManager.showScreen('quiz-screen');
-            }
-        });
-    };
-});
+    <script>
+        // Complete JavaScript code will be in the next file
+        // This is split due to character limits
+    </script>
+</body>
+</html>
