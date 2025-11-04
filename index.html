@@ -1034,13 +1034,80 @@ const avatarSystem = {
 };
 
 // Connection Manager
+// Real Socket.io Connection Manager
 const connectionManager = {
-    isConnected: true,
+    socket: null,
+    isConnected: false,
+    reconnectAttempts: 0,
+    maxReconnectAttempts: 5,
     
     async init() {
-        console.log('🔌 Connection manager initialized');
-        this.setConnectionStatus('connected');
-        return Promise.resolve();
+        try {
+            console.log('🔌 Initializing real socket connection...');
+            await this.connectWebSocket();
+            
+            // Set up periodic health checks
+            setInterval(() => this.checkConnection(), 30000);
+            
+        } catch (error) {
+            console.error('Connection manager init failed:', error);
+            this.setConnectionStatus('disconnected');
+        }
+    },
+    
+    async connectWebSocket() {
+        return new Promise((resolve, reject) => {
+            try {
+                console.log('🔄 Connecting to WebSocket...');
+                this.setConnectionStatus('connecting');
+                
+                // Create real socket.io connection
+                this.socket = io(SOCKET_URL, {
+                    transports: ['websocket', 'polling'],
+                    timeout: 10000
+                });
+                
+                this.socket.on('connect', () => {
+                    console.log('✅ WebSocket connected successfully');
+                    this.isConnected = true;
+                    this.reconnectAttempts = 0;
+                    this.setConnectionStatus('connected');
+                    resolve();
+                });
+                
+                this.socket.on('disconnect', (reason) => {
+                    console.log('❌ WebSocket disconnected:', reason);
+                    this.isConnected = false;
+                    this.setConnectionStatus('disconnected');
+                    this.handleReconnection();
+                });
+                
+                this.socket.on('connect_error', (error) => {
+                    console.log('❌ WebSocket connection error:', error);
+                    this.setConnectionStatus('disconnected');
+                    reject(error);
+                });
+                
+                // Set timeout for connection
+                setTimeout(() => {
+                    if (!this.isConnected) {
+                        reject(new Error('Connection timeout'));
+                    }
+                }, 10000);
+                
+            } catch (error) {
+                this.setConnectionStatus('disconnected');
+                reject(error);
+            }
+        });
+    },
+    
+    handleReconnection() {
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            console.log(`🔄 Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+            setTimeout(() => this.connectWebSocket(), 2000);
+        }
     },
     
     setConnectionStatus(status) {
@@ -1052,28 +1119,58 @@ const connectionManager = {
             
             switch(status) {
                 case 'connected':
-                    statusElement.innerHTML = '<span class="online-indicator online"></span><i class="fas fa-check-circle me-2"></i>Connected';
+                    statusElement.innerHTML = '<span class="online-indicator online"></span><i class="fas fa-check-circle me-2"></i>Connected to server';
                     break;
                 case 'disconnected':
-                    statusElement.innerHTML = '<span class="online-indicator offline"></span><i class="fas fa-times-circle me-2"></i>Offline';
+                    statusElement.innerHTML = '<span class="online-indicator offline"></span><i class="fas fa-times-circle me-2"></i>Offline mode';
                     break;
                 case 'connecting':
-                    statusElement.innerHTML = '<span class="online-indicator connecting"></span><i class="fas fa-sync-alt me-2"></i>Connecting...';
+                    statusElement.innerHTML = '<span class="online-indicator connecting"></span><i class="fas fa-sync-alt me-2"></i>Connecting to server...';
                     break;
             }
         }
     },
     
+    async checkConnection() {
+        if (!this.isConnected && this.reconnectAttempts < this.maxReconnectAttempts) {
+            await this.connectWebSocket();
+        }
+    },
+    
     async emit(event, data) {
-        console.log(`📤 Emitting ${event}:`, data);
-        return Promise.resolve({ success: true });
+        if (this.isConnected && this.socket) {
+            return new Promise((resolve) => {
+                this.socket.emit(event, data, (response) => {
+                    resolve(response);
+                });
+                
+                // Timeout fallback
+                setTimeout(() => {
+                    resolve({ success: false, error: 'Request timeout' });
+                }, 5000);
+            });
+        } else {
+            console.log(`📤 Would emit ${event} (offline mode)`, data);
+            return Promise.resolve({ success: false, error: 'Offline mode' });
+        }
     },
     
     on(event, callback) {
-        console.log(`📥 Listening for ${event}`);
+        if (this.isConnected && this.socket) {
+            this.socket.on(event, callback);
+        } else {
+            console.log(`📥 Would listen for ${event} (offline mode)`);
+        }
+    },
+    
+    off(event, callback) {
+        if (this.isConnected && this.socket) {
+            this.socket.off(event, callback);
+        }
     }
 };
-
+   
+   
 // Question Manager
 const questionManager = {
     async getQuestions(settings) {
@@ -1662,21 +1759,477 @@ const singlePlayerSystem = {
 };
 
 // Multiplayer System
+// Real-time Multiplayer System
 const multiplayerSystem = {
+    currentRoom: null,
+    players: [],
+    gameState: null,
+    socket: null,
+    
     init() {
         console.log('🎮 Multiplayer system initialized');
+        this.setupSocketListeners();
+    },
+    
+    setupSocketListeners() {
+        // Listen for real socket events
+        connectionManager.on('playerJoined', (data) => {
+            this.handlePlayerJoined(data);
+        });
+        
+        connectionManager.on('playerLeft', (data) => {
+            this.handlePlayerLeft(data);
+        });
+        
+        connectionManager.on('roomCreated', (data) => {
+            this.handleRoomCreated(data);
+        });
+        
+        connectionManager.on('roomJoined', (data) => {
+            this.handleRoomJoined(data);
+        });
+        
+        connectionManager.on('gameStarted', (data) => {
+            this.handleGameStarted(data);
+        });
+        
+        connectionManager.on('question', (data) => {
+            this.handleQuestionReceived(data);
+        });
+        
+        connectionManager.on('playerAnswered', (data) => {
+            this.handlePlayerAnswered(data);
+        });
+        
+        connectionManager.on('gameEnded', (data) => {
+            this.handleGameEnded(data);
+        });
+        
+        connectionManager.on('roomError', (data) => {
+            categoryManager.showError(data.message);
+        });
     },
     
     async createRoom(settings) {
-        console.log('🎮 Creating room (demo mode)');
-        categoryManager.showSuccess('Room created! In demo mode, multiplayer is simulated.');
-        return true;
+        try {
+            console.log('🎮 Creating multiplayer room...');
+            
+            const playerName = document.getElementById('mp-player-name').value || 'Player';
+            const avatar = avatarSystem.selectedAvatar;
+            
+            if (currentState.connectionStatus !== 'connected') {
+                categoryManager.showError('Cannot create room while offline. Please check your connection.');
+                return false;
+            }
+            
+            const roomData = {
+                playerName: playerName,
+                avatar: avatar,
+                settings: settings
+            };
+            
+            categoryManager.showLoading(true);
+            const result = await connectionManager.emit('createRoom', roomData);
+            
+            if (result && result.success) {
+                console.log('✅ Room creation request sent');
+                return true;
+            } else {
+                throw new Error(result?.error || 'Failed to create room');
+            }
+            
+        } catch (error) {
+            console.error('Error creating room:', error);
+            categoryManager.showError(error.message || 'Failed to create room. Please try again.');
+            return false;
+        } finally {
+            categoryManager.showLoading(false);
+        }
     },
     
     async joinRoom(roomCode) {
-        console.log('🎮 Joining room (demo mode):', roomCode);
-        categoryManager.showSuccess('Joined room! In demo mode, multiplayer is simulated.');
-        return true;
+        try {
+            const playerName = document.getElementById('mp-player-name').value || 'Player';
+            const avatar = avatarSystem.selectedAvatar;
+            
+            if (currentState.connectionStatus !== 'connected') {
+                categoryManager.showError('Cannot join room while offline. Please check your connection.');
+                return false;
+            }
+            
+            if (!roomCode || roomCode.length !== 4) {
+                categoryManager.showError('Please enter a valid 4-character room code');
+                return false;
+            }
+            
+            const joinData = {
+                roomCode: roomCode.toUpperCase(),
+                playerName: playerName,
+                avatar: avatar
+            };
+            
+            categoryManager.showLoading(true);
+            const result = await connectionManager.emit('joinRoom', joinData);
+            
+            if (result && result.success) {
+                console.log('✅ Join room request sent');
+                return true;
+            } else {
+                throw new Error(result?.error || 'Failed to join room');
+            }
+            
+        } catch (error) {
+            console.error('Error joining room:', error);
+            categoryManager.showError(error.message || 'Failed to join room. Please check the room code and try again.');
+            return false;
+        } finally {
+            categoryManager.showLoading(false);
+        }
+    },
+    
+    async startGame() {
+        try {
+            if (!this.currentRoom) {
+                categoryManager.showError('No room found');
+                return;
+            }
+            
+            const result = await connectionManager.emit('startGame', {
+                roomCode: this.currentRoom.code
+            });
+            
+            if (result && result.success) {
+                console.log('✅ Game start request sent');
+            } else {
+                throw new Error('Failed to start game');
+            }
+            
+        } catch (error) {
+            console.error('Error starting game:', error);
+            categoryManager.showError('Failed to start game. Please try again.');
+        }
+    },
+    
+    async submitAnswer(questionIndex, answerIndex) {
+        try {
+            if (!this.currentRoom) return;
+            
+            await connectionManager.emit('submitAnswer', {
+                roomCode: this.currentRoom.code,
+                questionIndex: questionIndex,
+                answerIndex: answerIndex,
+                timeRemaining: this.timeLeft || 0
+            });
+            
+        } catch (error) {
+            console.error('Error submitting answer:', error);
+        }
+    },
+    
+    leaveRoom() {
+        if (this.currentRoom) {
+            connectionManager.emit('leaveRoom', { roomCode: this.currentRoom.code });
+            this.currentRoom = null;
+            this.players = [];
+            this.gameState = null;
+        }
+        
+        categoryManager.showScreen('multiplayer-setup');
+    },
+    
+    // Event handlers
+    handleRoomCreated(data) {
+        this.currentRoom = {
+            code: data.roomCode,
+            host: data.hostId,
+            players: data.players,
+            settings: data.settings
+        };
+        
+        this.players = data.players;
+        this.updateLobbyDisplay();
+        categoryManager.showScreen('multiplayer-lobby');
+        categoryManager.showSuccess(`Room created! Share code: ${data.roomCode}`);
+    },
+    
+    handleRoomJoined(data) {
+        this.currentRoom = {
+            code: data.roomCode,
+            host: data.hostId,
+            players: data.players,
+            settings: data.settings
+        };
+        
+        this.players = data.players;
+        this.updateLobbyDisplay();
+        categoryManager.showScreen('multiplayer-lobby');
+        categoryManager.showSuccess(`Joined room: ${data.roomCode}`);
+    },
+    
+    handlePlayerJoined(data) {
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            this.players.push(data.player);
+            this.updateLobbyDisplay();
+            categoryManager.showSuccess(`${data.player.name} joined the room!`);
+        }
+    },
+    
+    handlePlayerLeft(data) {
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            this.players = this.players.filter(player => player.id !== data.playerId);
+            this.updateLobbyDisplay();
+            categoryManager.showError(`${data.playerName} left the room`);
+        }
+    },
+    
+    handleGameStarted(data) {
+        this.gameState = {
+            currentQuestion: 0,
+            questions: data.questions,
+            players: data.players,
+            timePerQuestion: data.timePerQuestion || 30
+        };
+        
+        this.loadQuestion(0);
+    },
+    
+    handleQuestionReceived(data) {
+        this.loadQuestion(data.questionIndex);
+    },
+    
+    handlePlayerAnswered(data) {
+        // Update player scores in real-time
+        const player = this.players.find(p => p.id === data.playerId);
+        if (player) {
+            player.score = data.newScore;
+            player.hasAnswered = true;
+        }
+        this.updateScoreboard();
+    },
+    
+    handleGameEnded(data) {
+        this.showResults(data.finalScores);
+    },
+    
+    updateLobbyDisplay() {
+        const roomCodeElement = document.getElementById('room-code');
+        const playerCountElement = document.getElementById('player-count');
+        const playersList = document.getElementById('players-list');
+        const startButton = document.getElementById('start-game-btn');
+        
+        if (roomCodeElement) {
+            roomCodeElement.textContent = this.currentRoom?.code || '----';
+        }
+        
+        if (playerCountElement) {
+            playerCountElement.textContent = this.players.length;
+        }
+        
+        if (playersList) {
+            playersList.innerHTML = this.players.map(player => `
+                <div class="player-item">
+                    <div class="multiplayer-avatar me-2">${player.avatar}</div>
+                    <div class="flex-grow-1">
+                        <strong>${player.name}</strong>
+                        ${player.id === connectionManager.socket?.id ? '<span class="badge bg-primary ms-2">You</span>' : ''}
+                    </div>
+                    ${player.id === this.currentRoom?.host ? '<span class="badge bg-warning">Host</span>' : ''}
+                    ${player.hasAnswered ? '<span class="badge bg-success ms-2">Answered</span>' : ''}
+                </div>
+            `).join('');
+        }
+        
+        if (startButton) {
+            const isHost = this.currentRoom?.host === connectionManager.socket?.id;
+            const canStart = this.players.length >= 2; // Require at least 2 players
+            
+            startButton.style.display = isHost ? 'block' : 'none';
+            startButton.disabled = !canStart;
+            
+            if (isHost && !canStart) {
+                startButton.title = 'Need at least 2 players to start';
+            }
+        }
+    },
+    
+    loadQuestion(questionIndex) {
+        if (!this.gameState || questionIndex >= this.gameState.questions.length) {
+            return;
+        }
+        
+        this.gameState.currentQuestion = questionIndex;
+        const question = this.gameState.questions[questionIndex];
+        
+        // Reset answered status for all players
+        this.players.forEach(player => {
+            player.hasAnswered = false;
+        });
+        
+        // Update UI
+        document.getElementById('current-subject').textContent = 
+            `Multiplayer - ${this.currentRoom.settings.category} - ${this.currentRoom.settings.subject}`;
+        
+        document.getElementById('question-count-display').textContent = 
+            `Question ${questionIndex + 1} of ${this.gameState.questions.length}`;
+        
+        document.getElementById('question-text').textContent = question.question;
+        
+        // Update progress bar
+        const progress = ((questionIndex) / this.gameState.questions.length) * 100;
+        document.getElementById('progress-bar').style.width = `${progress}%`;
+        
+        // Render options
+        const optionsContainer = document.getElementById('options-container');
+        optionsContainer.innerHTML = '';
+        
+        question.options.forEach((option, index) => {
+            const optionElement = document.createElement('div');
+            optionElement.className = 'option';
+            optionElement.innerHTML = `
+                <div class="option-content">
+                    <div class="option-letter">${String.fromCharCode(65 + index)}</div>
+                    <div class="option-text">${option}</div>
+                </div>
+            `;
+            
+            optionElement.addEventListener('click', () => {
+                this.selectAnswer(index);
+            });
+            
+            optionsContainer.appendChild(optionElement);
+        });
+        
+        // Show multiplayer status
+        document.getElementById('multiplayer-status').classList.remove('d-none');
+        this.updateScoreboard();
+        
+        categoryManager.showScreen('quiz-screen');
+        this.startTimer();
+    },
+    
+    selectAnswer(optionIndex) {
+        if (!this.gameState || !this.currentRoom) return;
+        
+        const question = this.gameState.questions[this.gameState.currentQuestion];
+        const isCorrect = optionIndex === question.correctAnswer;
+        
+        // Visual feedback
+        const options = document.querySelectorAll('.option');
+        options.forEach(opt => opt.classList.remove('selected', 'correct', 'incorrect'));
+        
+        if (options[optionIndex]) {
+            options[optionIndex].classList.add('selected');
+            options[optionIndex].classList.add(isCorrect ? 'correct' : 'incorrect');
+        }
+        
+        if (question.correctAnswer >= 0 && question.correctAnswer < options.length) {
+            options[question.correctAnswer].classList.add('correct');
+        }
+        
+        // Submit answer to server
+        this.submitAnswer(this.gameState.currentQuestion, optionIndex);
+        
+        // Play sound
+        if (isCorrect) {
+            soundSystem.play('correct');
+        } else {
+            soundSystem.play('wrong');
+        }
+        
+        // Disable further interaction
+        options.forEach(opt => {
+            opt.style.pointerEvents = 'none';
+        });
+        
+        // Mark current player as answered
+        const currentPlayer = this.players.find(p => p.id === connectionManager.socket?.id);
+        if (currentPlayer) {
+            currentPlayer.hasAnswered = true;
+        }
+    },
+    
+    startTimer() {
+        this.timeLeft = this.gameState.timePerQuestion;
+        this.updateTimerDisplay();
+        
+        this.timer = setInterval(() => {
+            this.timeLeft--;
+            this.updateTimerDisplay();
+            
+            if (this.timeLeft <= 0) {
+                clearInterval(this.timer);
+                // Auto-submit when time runs out
+                this.submitAnswer(this.gameState.currentQuestion, -1);
+            }
+        }, 1000);
+    },
+    
+    updateTimerDisplay() {
+        const timerElement = document.getElementById('time-left');
+        if (timerElement) {
+            timerElement.textContent = this.timeLeft;
+            timerElement.className = `timer ${this.timeLeft <= 10 ? 'warning' : ''} ${this.timeLeft <= 5 ? 'danger' : ''}`;
+        }
+    },
+    
+    updateScoreboard() {
+        const scoreboard = document.getElementById('players-progress');
+        if (!scoreboard) return;
+        
+        const sortedPlayers = [...this.players].sort((a, b) => b.score - a.score);
+        
+        scoreboard.innerHTML = sortedPlayers.map(player => `
+            <div class="player-progress d-flex align-items-center mb-2">
+                <div class="multiplayer-avatar me-2">${player.avatar}</div>
+                <div class="flex-grow-1">
+                    <div class="d-flex justify-content-between small">
+                        <span>${player.name} ${player.hasAnswered ? '✅' : ''}</span>
+                        <span>${player.score} pts</span>
+                    </div>
+                    <div class="progress" style="height: 5px;">
+                        <div class="progress-bar" style="width: ${Math.min((player.score / 100) * 100, 100)}%"></div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    },
+    
+    showResults(finalScores) {
+        const sortedScores = finalScores.sort((a, b) => b.score - a.score);
+        const winner = sortedScores[0];
+        const currentPlayerId = connectionManager.socket?.id;
+        
+        document.getElementById('final-score').textContent = `${winner.name} wins!`;
+        
+        const statsContainer = document.getElementById('performance-stats');
+        statsContainer.innerHTML = `
+            <div class="leaderboard">
+                <h5 class="text-center mb-3">Final Standings</h5>
+                ${sortedScores.map((player, index) => `
+                    <div class="player-result d-flex justify-content-between align-items-center p-2 mb-2 ${
+                        player.id === currentPlayerId ? 'bg-light rounded' : ''
+                    }">
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-${index === 0 ? 'warning' : 'secondary'} me-2">${index + 1}</span>
+                            <span class="avatar me-2">${player.avatar}</span>
+                            <span>${player.name} ${player.id === currentPlayerId ? '(You)' : ''}</span>
+                        </div>
+                        <div class="score">${player.score} pts</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        
+        categoryManager.showScreen('results-screen');
+        
+        if (winner.id === currentPlayerId) {
+            document.getElementById('confetti').style.display = 'block';
+            soundSystem.play('victory');
+            
+            setTimeout(() => {
+                document.getElementById('confetti').style.display = 'none';
+            }, 5000);
+        }
     }
 };
 
@@ -1710,6 +2263,23 @@ const userManager = {
 // Event Listeners Setup
 function setupEventListeners() {
     console.log('🔧 Setting up event listeners...');
+// Add these to your existing setupEventListeners function:
+
+// Leave room button
+const leaveRoomBtn = document.getElementById('leave-room-btn');
+if (leaveRoomBtn) {
+    leaveRoomBtn.addEventListener('click', () => {
+        multiplayerSystem.leaveRoom();
+    });
+}
+
+// Start multiplayer game button
+const startGameBtn = document.getElementById('start-game-btn');
+if (startGameBtn) {
+    startGameBtn.addEventListener('click', () => {
+        multiplayerSystem.startGame();
+    });
+}
     
     // Sound toggle
     const soundToggle = document.getElementById('toggle-sound');
