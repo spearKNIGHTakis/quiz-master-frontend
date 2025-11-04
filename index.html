@@ -2097,33 +2097,429 @@ const singlePlayerSystem = {
 };
 
 // User Management System (unchanged from previous)
+   // User Management System - Complete Implementation
 const userManager = {
-    // ... (include the user management system code from previous response)
+    currentUser: null,
+    users: JSON.parse(localStorage.getItem('quizAppUsers')) || {},
+    
+    init() {
+        console.log('👤 User manager initialized');
+        this.loadCurrentUser();
+        this.setupEventListeners();
+        this.updateUserDisplay();
+    },
+    
+    loadCurrentUser() {
+        try {
+            const savedUser = localStorage.getItem('quizAppCurrentUser');
+            if (savedUser) {
+                this.currentUser = JSON.parse(savedUser);
+                console.log('✅ User loaded:', this.currentUser.username);
+                this.showUserProfile();
+            } else {
+                console.log('ℹ️ No user found, using guest mode');
+                this.setupGuestUser();
+            }
+        } catch (error) {
+            console.error('❌ Error loading user:', error);
+            this.setupGuestUser();
+        }
+    },
+    
+    setupGuestUser() {
+        this.currentUser = {
+            id: 'guest_' + Math.random().toString(36).substr(2, 9),
+            username: 'Guest',
+            avatar: '👤',
+            isGuest: true,
+            stats: {
+                level: 1,
+                totalXP: 0,
+                totalQuizzes: 0,
+                totalQuestions: 0,
+                correctAnswers: 0,
+                categories: {}
+            },
+            achievements: [],
+            preferences: {
+                sound: true,
+                theme: 'light'
+            },
+            history: []
+        };
+    },
+    
+    setupEventListeners() {
+        // Edit profile button
+        const editProfileBtn = document.getElementById('edit-profile');
+        if (editProfileBtn) {
+            editProfileBtn.addEventListener('click', () => {
+                this.handleEditProfile();
+            });
+        }
+        
+        // Logout button
+        const logoutBtn = document.getElementById('logout-btn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => {
+                this.handleLogout();
+            });
+        }
+    },
+    
+    handleEditProfile() {
+        if (this.currentUser.isGuest) {
+            categoryManager.showError('Guest users cannot edit profiles. Please create an account.');
+            return;
+        }
+        
+        // Simple profile editing - just change avatar for now
+        const avatars = ['👨‍💻', '👩‍🚀', '🦸', '👨‍🎓', '👩‍🎨', '🤖', '🐱', '🦊'];
+        const currentIndex = avatars.indexOf(this.currentUser.avatar);
+        const nextIndex = (currentIndex + 1) % avatars.length;
+        
+        this.currentUser.avatar = avatars[nextIndex];
+        this.saveCurrentUser();
+        this.updateUserDisplay();
+        categoryManager.showSuccess('Avatar updated!');
+    },
+    
+    handleLogout() {
+        if (this.currentUser.isGuest) {
+            categoryManager.showError('Guest users are already logged out.');
+            return;
+        }
+        
+        if (confirm('Are you sure you want to logout?')) {
+            localStorage.removeItem('quizAppCurrentUser');
+            this.currentUser = null;
+            this.setupGuestUser();
+            this.hideUserProfile();
+            categoryManager.showSuccess('Logged out successfully');
+        }
+    },
+    
+    updateQuizStats(quizResult) {
+        if (!this.currentUser) return 0;
+        
+        // Calculate XP based on performance
+        const baseXP = 10;
+        const accuracyBonus = Math.floor((quizResult.accuracy / 100) * 20);
+        const speedBonus = quizResult.timeTaken < 300 ? 10 : 0; // Bonus for completing under 5 minutes
+        const difficultyMultiplier = quizResult.difficulty === 'hard' ? 1.5 : quizResult.difficulty === 'medium' ? 1.2 : 1;
+        
+        const xpEarned = Math.floor((baseXP + accuracyBonus + speedBonus) * difficultyMultiplier);
+        
+        // Initialize stats if they don't exist
+        this.currentUser.stats = this.currentUser.stats || {
+            level: 1,
+            totalXP: 0,
+            totalQuizzes: 0,
+            totalQuestions: 0,
+            correctAnswers: 0,
+            categories: {}
+        };
+        
+        // Update user stats
+        this.currentUser.stats.totalQuizzes++;
+        this.currentUser.stats.totalQuestions += quizResult.totalQuestions;
+        this.currentUser.stats.correctAnswers += quizResult.correctAnswers;
+        this.currentUser.stats.totalXP += xpEarned;
+        
+        // Update category stats
+        if (!this.currentUser.stats.categories) {
+            this.currentUser.stats.categories = {};
+        }
+        
+        const categoryKey = `${quizResult.category}_${quizResult.subject}`;
+        if (!this.currentUser.stats.categories[categoryKey]) {
+            this.currentUser.stats.categories[categoryKey] = {
+                quizzesPlayed: 0,
+                correctAnswers: 0,
+                totalQuestions: 0,
+                bestScore: 0
+            };
+        }
+        
+        const categoryStats = this.currentUser.stats.categories[categoryKey];
+        categoryStats.quizzesPlayed++;
+        categoryStats.correctAnswers += quizResult.correctAnswers;
+        categoryStats.totalQuestions += quizResult.totalQuestions;
+        
+        if (quizResult.accuracy > categoryStats.bestScore) {
+            categoryStats.bestScore = quizResult.accuracy;
+        }
+        
+        // Calculate level based on total XP (100 XP per level)
+        const newLevel = Math.floor(this.currentUser.stats.totalXP / 100) + 1;
+        const leveledUp = newLevel > this.currentUser.stats.level;
+        
+        if (leveledUp) {
+            this.currentUser.stats.level = newLevel;
+            categoryManager.showSuccess(`🎉 Level Up! You reached level ${newLevel}!`);
+        }
+        
+        // Add to history
+        this.currentUser.history = this.currentUser.history || [];
+        this.currentUser.history.unshift({
+            ...quizResult,
+            timestamp: new Date().toISOString(),
+            xpEarned: xpEarned
+        });
+        
+        // Keep only last 50 history items
+        if (this.currentUser.history.length > 50) {
+            this.currentUser.history = this.currentUser.history.slice(0, 50);
+        }
+        
+        this.saveCurrentUser();
+        this.updateUserDisplay();
+        
+        return xpEarned;
+    },
+    
+    saveCurrentUser() {
+        if (this.currentUser && !this.currentUser.isGuest) {
+            localStorage.setItem('quizAppCurrentUser', JSON.stringify(this.currentUser));
+            this.users[this.currentUser.id] = this.currentUser;
+            localStorage.setItem('quizAppUsers', JSON.stringify(this.users));
+        }
+    },
+    
+    getCurrentUser() {
+        return this.currentUser;
+    },
+    
+    updateUserDisplay() {
+        const userDisplay = document.getElementById('user-display');
+        const userAvatar = document.getElementById('user-avatar');
+        const userName = document.getElementById('user-name');
+        const userLevel = document.getElementById('user-level');
+        const userXP = document.getElementById('user-xp');
+        
+        const profileAvatar = document.getElementById('profile-avatar');
+        const profileUsername = document.getElementById('profile-username');
+        const profileLevel = document.getElementById('profile-level');
+        const profileXP = document.getElementById('profile-xp');
+        const profileXPNeeded = document.getElementById('profile-xp-needed');
+        const profileNextLevel = document.getElementById('profile-next-level');
+        const profileProgress = document.getElementById('profile-progress');
+        const profileQuizzes = document.getElementById('profile-quizzes');
+        const profileAccuracy = document.getElementById('profile-accuracy');
+        const profileAchievements = document.getElementById('profile-achievements');
+        
+        if (this.currentUser) {
+            // Update header display
+            if (userDisplay) userDisplay.style.display = 'flex';
+            if (userAvatar) userAvatar.textContent = this.currentUser.avatar;
+            if (userName) userName.textContent = this.currentUser.username;
+            if (userLevel) userLevel.textContent = `Level ${this.currentUser.stats?.level || 1}`;
+            if (userXP) userXP.textContent = `${this.currentUser.stats?.totalXP || 0} XP`;
+            
+            // Update profile section
+            if (profileAvatar) profileAvatar.textContent = this.currentUser.avatar;
+            if (profileUsername) profileUsername.textContent = this.currentUser.username;
+            if (profileLevel) profileLevel.textContent = this.currentUser.stats?.level || 1;
+            if (profileXP) profileXP.textContent = this.currentUser.stats?.totalXP || 0;
+            
+            const currentLevel = this.currentUser.stats?.level || 1;
+            const currentXP = this.currentUser.stats?.totalXP || 0;
+            const xpForCurrentLevel = (currentLevel - 1) * 100;
+            const xpForNextLevel = currentLevel * 100;
+            const progress = ((currentXP - xpForCurrentLevel) / (xpForNextLevel - xpForCurrentLevel)) * 100;
+            
+            if (profileXPNeeded) profileXPNeeded.textContent = xpForNextLevel;
+            if (profileNextLevel) profileNextLevel.textContent = currentLevel + 1;
+            if (profileProgress) profileProgress.style.width = `${Math.min(progress, 100)}%`;
+            
+            if (profileQuizzes) profileQuizzes.textContent = this.currentUser.stats?.totalQuizzes || 0;
+            
+            const accuracy = this.currentUser.stats?.totalQuestions ? 
+                Math.round(((this.currentUser.stats.correctAnswers || 0) / this.currentUser.stats.totalQuestions) * 100) : 0;
+            if (profileAccuracy) profileAccuracy.textContent = `${accuracy}%`;
+            
+            if (profileAchievements) profileAchievements.textContent = this.currentUser.achievements?.length || 0;
+        } else {
+            if (userDisplay) userDisplay.style.display = 'none';
+        }
+    },
+    
+    showUserProfile() {
+        const userProfile = document.getElementById('user-profile');
+        if (userProfile) {
+            userProfile.classList.remove('d-none');
+        }
+    },
+    
+    hideUserProfile() {
+        const userProfile = document.getElementById('user-profile');
+        if (userProfile) {
+            userProfile.classList.add('d-none');
+        }
+    },
+    
+    // Utility methods for future authentication
+    async login(email, password) {
+        // Placeholder for real authentication
+        return new Promise((resolve, reject) => {
+            setTimeout(() => {
+                const user = {
+                    id: 'user_' + Math.random().toString(36).substr(2, 9),
+                    username: email.split('@')[0],
+                    email: email,
+                    avatar: '👨‍💻',
+                    isGuest: false,
+                    stats: {
+                        level: 1,
+                        totalXP: 0,
+                        totalQuizzes: 0,
+                        totalQuestions: 0,
+                        correctAnswers: 0,
+                        categories: {}
+                    },
+                    achievements: [],
+                    preferences: {
+                        sound: true,
+                        theme: 'light'
+                    },
+                    history: [],
+                    createdAt: new Date().toISOString()
+                };
+                
+                this.currentUser = user;
+                this.saveCurrentUser();
+                this.updateUserDisplay();
+                this.showUserProfile();
+                resolve(user);
+            }, 1000);
+        });
+    },
+    
+    async register(username, email, password) {
+        // Placeholder for real registration
+        return new Promise((resolve, reject) => {
+            setTimeout(() => {
+                const user = {
+                    id: 'user_' + Math.random().toString(36).substr(2, 9),
+                    username: username,
+                    email: email,
+                    avatar: '👨‍💻',
+                    isGuest: false,
+                    stats: {
+                        level: 1,
+                        totalXP: 0,
+                        totalQuizzes: 0,
+                        totalQuestions: 0,
+                        correctAnswers: 0,
+                        categories: {}
+                    },
+                    achievements: [],
+                    preferences: {
+                        sound: true,
+                        theme: 'light'
+                    },
+                    history: [],
+                    createdAt: new Date().toISOString()
+                };
+                
+                this.currentUser = user;
+                this.saveCurrentUser();
+                this.updateUserDisplay();
+                this.showUserProfile();
+                resolve(user);
+            }, 1000);
+        });
+    }
 };
 
-// Initialize the application
+// Initialize the application with proper error handling
 async function initApp() {
     console.log('🚀 Initializing QuizMaster App');
     
     try {
-        // Initialize systems in order
+        // Initialize systems in order with error handling for each
+        console.log('🔌 Initializing connection manager...');
         await connectionManager.init();
+        
+        console.log('👤 Initializing user manager...');
         userManager.init();
+        
+        console.log('🎯 Initializing category manager...');
         categoryManager.init();
+        
+        console.log('🎮 Initializing single player system...');
         singlePlayerSystem.init();
+        
+        console.log('👤 Initializing avatar system...');
         avatarSystem.init();
+        
+        console.log('🎮 Initializing multiplayer system...');
         multiplayerSystem.init();
         
         // Setup event listeners
+        console.log('🔧 Setting up event listeners...');
         setupEventListeners();
         
         console.log('✅ App initialized successfully');
+        
     } catch (error) {
         console.error('❌ App initialization failed:', error);
         categoryManager.showError('Failed to initialize app. Some features may not work.');
+        
+        // Try to initialize critical systems even if others fail
+        try {
+            userManager.init();
+            categoryManager.init();
+            avatarSystem.init();
+        } catch (fallbackError) {
+            console.error('❌ Fallback initialization also failed:', fallbackError);
+        }
     }
 }
 
+// Make sure all required objects exist before initialization
+// Add these placeholder objects if they're missing
+if (typeof singlePlayerSystem === 'undefined') {
+    const singlePlayerSystem = {
+        init: function() { console.log('🎮 Single player system placeholder'); },
+        startGame: function() { console.log('Start game placeholder'); }
+    };
+}
+
+if (typeof multiplayerSystem === 'undefined') {
+    const multiplayerSystem = {
+        init: function() { console.log('🎮 Multiplayer system placeholder'); }
+    };
+}
+
+if (typeof avatarSystem === 'undefined') {
+    const avatarSystem = {
+        init: function() { console.log('👤 Avatar system placeholder'); },
+        selectedAvatar: '👨‍💻'
+    };
+}
+
+// Initialize the app when the DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('📄 DOM loaded, initializing app...');
+    initApp().catch(error => {
+        console.error('💥 Critical app initialization error:', error);
+    });
+});
+
+// Export for global access
+window.QuizApp = {
+    categoryManager,
+    singlePlayerSystem,
+    multiplayerSystem,
+    connectionManager,
+    userManager,
+    soundSystem,
+    avatarSystem
+};
+
+console.log('🎉 Quiz Application script loaded!');
+   
 // Setup all event listeners
 function setupEventListeners() {
     console.log('🔧 Setting up event listeners...');
