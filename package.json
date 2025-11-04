@@ -1,0 +1,10 @@
+{
+  "name": "quiz-master-frontend",
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve . -p 3000",
+    "start": "npx serve . -p 3000",
+    "build": "echo 'No build step needed for static site'"
+  }
+}
