@@ -950,148 +950,42 @@
         };
 
         // Online Question Service
-        const onlineQuestionService = {
-            async fetchQuestions(category, subject, difficulty, count) {
-                try {
-                    console.log(`🌐 Fetching ${count} ${difficulty} questions for ${category}/${subject}`);
-                    
-                    // Simulate API call
-                    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
-                    
-                    // Simulate successful response 70% of the time
-                    if (Math.random() > 0.3) {
-                        const onlineQuestions = this.generateOnlineQuestions(category, subject, difficulty, count);
-                        console.log(`✅ Successfully fetched ${onlineQuestions.length} online questions`);
-                        return {
-                            success: true,
-                            questions: onlineQuestions,
-                            source: 'online'
-                        };
-                    } else {
-                        throw new Error('API temporarily unavailable');
-                    }
-                } catch (error) {
-                    console.error('❌ Failed to fetch online questions:', error);
-                    return {
-                        success: false,
-                        error: error.message,
-                        source: 'online'
-                    };
-                }
-            },
+     
+                // Online Question Service - Now using OpenTDB
+const onlineQuestionService = {
+    async fetchQuestions(category, subject, difficulty, count) {
+        try {
+            console.log(`🌐 Fetching ${count} ${difficulty} questions for ${category}/${subject} from OpenTDB`);
             
-            generateOnlineQuestions(category, subject, difficulty, count) {
-                const questionTemplates = {
-                    primary: {
-                        mathematics: {
-                            easy: [
-                                "What is {{n1}} + {{n2}}?",
-                                "How many sides does a {{shape}} have?",
-                                "What is {{n1}} × {{n2}}?"
-                            ],
-                            medium: [
-                                "Calculate {{n1}} + {{n2}} × {{n3}}",
-                                "What is the area of a rectangle with length {{n1}} and width {{n2}}?",
-                                "Solve: {{n1}} - ({{n2}} + {{n3}})"
-                            ]
-                        },
-                        science: {
-                            easy: [
-                                "Which planet is known as the {{feature}} planet?",
-                                "What do plants need for {{process}}?",
-                                "Which of these is a {{type}}?"
-                            ]
-                        }
-                    }
-                };
-                
-                const questions = [];
-                const templates = questionTemplates[category]?.[subject]?.[difficulty] || [];
-                
-                if (templates.length === 0) {
-                    templates.push("What is the main topic in {{subject}} at {{level}} level?");
-                }
-                
-                for (let i = 0; i < count; i++) {
-                    const template = templates[i % templates.length];
-                    let questionText = template
-                        .replace('{{n1}}', Math.floor(Math.random() * 20) + 1)
-                        .replace('{{n2}}', Math.floor(Math.random() * 20) + 1)
-                        .replace('{{n3}}', Math.floor(Math.random() * 10) + 1)
-                        .replace('{{shape}}', ['triangle', 'square', 'pentagon', 'hexagon'][Math.floor(Math.random() * 4)])
-                        .replace('{{feature}}', ['Red', 'Blue', 'Gas', 'Ice'][Math.floor(Math.random() * 4)])
-                        .replace('{{process}}', ['photosynthesis', 'growth', 'respiration', 'reproduction'][Math.floor(Math.random() * 4)])
-                        .replace('{{type}}', ['mammal', 'reptile', 'bird', 'insect'][Math.floor(Math.random() * 4)])
-                        .replace('{{subject}}', subject)
-                        .replace('{{level}}', category);
-                    
-                    const options = [];
-                    const correctAnswer = Math.floor(Math.random() * 4);
-                    
-                    for (let j = 0; j < 4; j++) {
-                        if (j === correctAnswer) {
-                            options.push(this.generateCorrectAnswer(category, subject, difficulty, questionText));
-                        } else {
-                            options.push(this.generateDistractor(category, subject, difficulty, questionText));
-                        }
-                    }
-                    
-                    questions.push({
-                        question: questionText,
-                        options: options,
-                        correctAnswer: correctAnswer,
-                        explanation: `This question tests your knowledge of ${subject} at ${difficulty} level.`,
-                        source: 'online'
-                    });
-                }
-                
-                return questions;
-            },
+            // Use the question manager's OpenTDB integration
+            const questions = await questionManager.fetchFromOpenTDB(category, subject, difficulty, count);
             
-            generateCorrectAnswer(category, subject, difficulty, question) {
-                if (question.includes('+') || question.includes('×') || question.includes('-')) {
-                    const numbers = question.match(/\d+/g) || [2, 3];
-                    if (question.includes('+')) {
-                        return (parseInt(numbers[0]) + parseInt(numbers[1])).toString();
-                    } else if (question.includes('×')) {
-                        return (parseInt(numbers[0]) * parseInt(numbers[1])).toString();
-                    } else if (question.includes('-')) {
-                        return (parseInt(numbers[0]) - parseInt(numbers[1])).toString();
-                    }
-                }
-                
-                const answers = {
-                    primary: {
-                        mathematics: ["12", "3", "24", "9", "60"],
-                        science: ["Mars", "Sunlight", "Whale", "The Sun", "Carbon Dioxide"]
-                    },
-                    highschool: {
-                        mathematics: ["5", "2x", "1", "ln|x| + C"],
-                        physics: ["Newton", "ma", "γ = 1/√(1-v²/c²)"]
-                    }
+            if (questions.length > 0) {
+                console.log(`✅ Successfully fetched ${questions.length} questions from OpenTDB`);
+                return {
+                    success: true,
+                    questions: questions,
+                    source: 'opentdb'
                 };
-                
-                const categoryAnswers = answers[category]?.[subject] || ["Correct", "Right", "True", "Yes"];
-                return categoryAnswers[Math.floor(Math.random() * categoryAnswers.length)];
-            },
-            
-            generateDistractor(category, subject, difficulty, question) {
-                const distractors = {
-                    primary: {
-                        mathematics: ["11", "4", "20", "8", "50"],
-                        science: ["Venus", "Water", "Shark", "Moon", "Oxygen"]
-                    },
-                    highschool: {
-                        mathematics: ["10", "x²", "0", "x + C"],
-                        physics: ["Joule", "mv", "√(1-v²/c²)"]
-                    }
+            } else {
+                return {
+                    success: false,
+                    error: 'No questions available from OpenTDB',
+                    source: 'opentdb'
                 };
-                
-                const categoryDistractors = distractors[category]?.[subject] || ["Incorrect", "Wrong", "False", "No"];
-                return categoryDistractors[Math.floor(Math.random() * categoryDistractors.length)];
             }
-        };
-
+            
+        } catch (error) {
+            console.error('❌ Failed to fetch from OpenTDB:', error);
+            return {
+                success: false,
+                error: error.message,
+                source: 'opentdb'
+            };
+        }
+    }
+};
+                  
         // Category and Subject Management
         const categoryManager = {
             categories: {
@@ -1316,149 +1210,342 @@
             }
         };
 
-        // Question Manager
-        const questionManager = {
-            async getQuestions(settings) {
-                const { category, subject, difficulty, questionCount, questionSource } = settings;
+     
+        // Enhanced Question Manager with OpenTDB Integration
+const questionManager = {
+    async getQuestions(settings) {
+        const { category, subject, difficulty, questionCount, questionSource } = settings;
+        
+        console.log(`📝 Requesting ${questionCount} ${difficulty} questions for ${category}/${subject}`);
+        
+        let onlineFirst = questionSource === 'auto' || questionSource === 'online';
+        let fallbackToOffline = questionSource === 'auto' || questionSource === 'offline';
+        
+        if (onlineFirst && currentState.connectionStatus === 'connected') {
+            try {
+                console.log('🌐 Attempting to fetch questions from OpenTDB...');
                 
-                console.log(`📝 Requesting ${questionCount} ${difficulty} questions for ${category}/${subject}`);
+                const apiQuestions = await this.fetchFromOpenTDB(category, subject, difficulty, questionCount);
                 
-                let onlineFirst = questionSource === 'auto' || questionSource === 'online';
-                let fallbackToOffline = questionSource === 'auto' || questionSource === 'offline';
-                
-                if (onlineFirst && currentState.connectionStatus === 'connected') {
-                    console.log('🌐 Attempting to fetch questions online...');
-                    const onlineResult = await onlineQuestionService.fetchQuestions(
-                        category, subject, difficulty, questionCount
-                    );
-                    
-                    if (onlineResult.success) {
-                        console.log(`✅ Using ${onlineResult.questions.length} online questions`);
-                        return {
-                            questions: onlineResult.questions,
-                            source: 'online'
-                        };
-                    } else if (fallbackToOffline) {
-                        console.log('🔄 Online failed, falling back to offline questions');
-                        categoryManager.showError('Online questions unavailable. Using offline questions.');
-                    } else {
-                        throw new Error('Online questions unavailable and offline fallback disabled');
-                    }
-                }
-                
-                if (fallbackToOffline) {
-                    console.log('📚 Using offline questions');
-                    const offlineQuestions = this.getOfflineQuestions(category, subject, difficulty, questionCount);
+                if (apiQuestions.length > 0) {
+                    console.log(`✅ Using ${apiQuestions.length} OpenTDB questions`);
                     return {
-                        questions: offlineQuestions,
-                        source: 'offline'
+                        questions: apiQuestions,
+                        source: 'online'
                     };
+                } else {
+                    console.log('⚠️ No questions from OpenTDB, falling back to offline');
+                    if (fallbackToOffline) {
+                        categoryManager.showError('Online questions unavailable. Using offline questions.');
+                    }
                 }
-                
-                throw new Error('No questions available with current settings');
-            },
+            } catch (error) {
+                console.error('❌ OpenTDB API failed:', error);
+                if (fallbackToOffline) {
+                    categoryManager.showError('Online questions unavailable. Using offline questions.');
+                }
+            }
+        }
+        
+        // Fallback to offline questions
+        if (fallbackToOffline) {
+            console.log('📚 Using offline questions');
+            const offlineQuestions = this.getOfflineQuestions(category, subject, difficulty, questionCount);
+            return {
+                questions: offlineQuestions,
+                source: 'offline'
+            };
+        }
+        
+        throw new Error('No questions available with current settings');
+    },
+    
+    async fetchFromOpenTDB(category, subject, difficulty, count) {
+        try {
+            const categoryMap = this.getOpenTDBCategory(category, subject);
+            if (!categoryMap) {
+                console.log(`No OpenTDB category mapping for ${category}/${subject}`);
+                return [];
+            }
             
-            getOfflineQuestions(category, subject, difficulty, count) {
-                const questions = {
-                    primary: {
-                        mathematics: {
-                            easy: [
-                                {
-                                    question: "What is 5 + 7?",
-                                    options: ["11", "12", "13", "14"],
-                                    correctAnswer: 1,
-                                    explanation: "5 + 7 equals 12."
-                                },
-                                {
-                                    question: "How many sides does a triangle have?",
-                                    options: ["2", "3", "4", "5"],
-                                    correctAnswer: 1,
-                                    explanation: "A triangle has 3 sides."
-                                },
-                                {
-                                    question: "What is 8 × 3?",
-                                    options: ["16", "24", "32", "40"],
-                                    correctAnswer: 1,
-                                    explanation: "8 multiplied by 3 equals 24."
-                                }
-                            ],
-                            medium: [
-                                {
-                                    question: "What is 15 × 6?",
-                                    options: ["75", "80", "90", "100"],
-                                    correctAnswer: 2,
-                                    explanation: "15 multiplied by 6 equals 90."
-                                }
-                            ]
-                        },
-                        science: {
-                            easy: [
-                                {
-                                    question: "Which animal lays eggs?",
-                                    options: ["Dog", "Cat", "Bird", "Cow"],
-                                    correctAnswer: 2,
-                                    explanation: "Birds lay eggs, while dogs, cats, and cows give birth to live young."
-                                },
-                                {
-                                    question: "What planet do we live on?",
-                                    options: ["Mars", "Venus", "Earth", "Jupiter"],
-                                    correctAnswer: 2,
-                                    explanation: "We live on planet Earth."
-                                }
-                            ]
-                        }
-                    },
-                    highschool: {
-                        mathematics: {
-                            easy: [
-                                {
-                                    question: "What is the value of x in the equation 2x + 5 = 15?",
-                                    options: ["5", "10", "15", "20"],
-                                    correctAnswer: 0,
-                                    explanation: "Subtract 5 from both sides: 2x = 10, then divide by 2: x = 5."
-                                }
-                            ]
-                        }
-                    },
-                    tertiary: {
-                        programming: {
-                            medium: [
-                                {
-                                    question: "What does HTML stand for?",
-                                    options: [
-                                        "Hyper Text Markup Language",
-                                        "High Tech Modern Language", 
-                                        "Hyper Transfer Markup Language",
-                                        "Home Tool Markup Language"
-                                    ],
-                                    correctAnswer: 0,
-                                    explanation: "HTML stands for Hyper Text Markup Language, used for creating web pages."
-                                }
-                            ]
-                        }
-                    }
-                };
-                
-                const categoryQuestions = questions[category] || {};
-                const subjectQuestions = categoryQuestions[subject] || {};
-                const difficultyQuestions = subjectQuestions[difficulty] || [];
-                
-                if (difficultyQuestions.length === 0) {
-                    const allSubjectQuestions = Object.values(subjectQuestions).flat();
-                    if (allSubjectQuestions.length > 0) {
-                        return allSubjectQuestions.slice(0, count);
-                    }
+            // Map difficulty levels
+            const difficultyMap = {
+                'easy': 'easy',
+                'medium': 'medium', 
+                'hard': 'hard'
+            };
+            
+            const apiDifficulty = difficultyMap[difficulty] || 'medium';
+            
+            console.log(`🔗 Fetching from OpenTDB: Category ${categoryMap.id}, Difficulty ${apiDifficulty}`);
+            
+            const response = await fetch(
+                `https://opentdb.com/api.php?amount=${count}&category=${categoryMap.id}&difficulty=${apiDifficulty}&type=multiple&encode=url3986`
+            );
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.response_code !== 0) {
+                console.warn(`OpenTDB API warning: Response code ${data.response_code}`);
+                // Handle specific response codes
+                if (data.response_code === 1) {
+                    console.log('No results - trying with fewer questions');
+                    return await this.fetchFromOpenTDB(category, subject, difficulty, Math.floor(count / 2));
                 }
-                
-                return difficultyQuestions.slice(0, count);
+                return [];
+            }
+            
+            if (!data.results || data.results.length === 0) {
+                console.log('No questions returned from OpenTDB');
+                return [];
+            }
+            
+            const formattedQuestions = data.results.map(q => this.formatOpenTDBQuestion(q));
+            console.log(`✅ Successfully formatted ${formattedQuestions.length} questions from OpenTDB`);
+            
+            return formattedQuestions;
+            
+        } catch (error) {
+            console.error('❌ OpenTDB fetch error:', error);
+            throw error;
+        }
+    },
+    
+    getOpenTDBCategory(category, subject) {
+        // Comprehensive mapping of your app categories to OpenTDB categories
+        const categoryMap = {
+            // Primary Level
+            primary: {
+                mathematics: { id: 19, name: 'Science: Mathematics' },
+                science: { id: 17, name: 'Science & Nature' },
+                english: { id: 10, name: 'Entertainment: Books' }, // Using books for English
+                social_studies: { id: 23, name: 'History' },
+                general: { id: 9, name: 'General Knowledge' }
+            },
+            // High School Level  
+            highschool: {
+                mathematics: { id: 19, name: 'Science: Mathematics' },
+                physics: { id: 17, name: 'Science & Nature' },
+                chemistry: { id: 17, name: 'Science & Nature' },
+                biology: { id: 17, name: 'Science & Nature' },
+                history: { id: 23, name: 'History' },
+                geography: { id: 22, name: 'Geography' },
+                computers: { id: 18, name: 'Science: Computers' },
+                general: { id: 9, name: 'General Knowledge' }
+            },
+            // Tertiary Level
+            tertiary: {
+                programming: { id: 18, name: 'Science: Computers' },
+                business: { id: 9, name: 'General Knowledge' },
+                engineering: { id: 17, name: 'Science & Nature' },
+                medicine: { id: 17, name: 'Science & Nature' },
+                law: { id: 9, name: 'General Knowledge' },
+                economics: { id: 9, name: 'General Knowledge' },
+                general: { id: 9, name: 'General Knowledge' }
             }
         };
-
+        
+        const mappedCategory = categoryMap[category]?.[subject] || categoryMap.primary.general;
+        console.log(`🗺️ Category mapping: ${category}/${subject} -> OpenTDB ${mappedCategory.id} (${mappedCategory.name})`);
+        
+        return mappedCategory;
+    },
+    
+    formatOpenTDBQuestion(apiQuestion) {
+        try {
+            // Decode URL-encoded text
+            const decodedQuestion = this.decodeURLEncoded(apiQuestion.question);
+            const decodedCorrect = this.decodeURLEncoded(apiQuestion.correct_answer);
+            const decodedIncorrect = apiQuestion.incorrect_answers.map(ans => this.decodeURLEncoded(ans));
+            
+            // Combine and shuffle options
+            const allOptions = [...decodedIncorrect, decodedCorrect];
+            const shuffledOptions = this.shuffleArray([...allOptions]);
+            
+            // Find correct answer index after shuffling
+            const correctIndex = shuffledOptions.findIndex(opt => opt === decodedCorrect);
+            
+            if (correctIndex === -1) {
+                console.error('Could not find correct answer after shuffling');
+                return null;
+            }
+            
+            return {
+                question: decodedQuestion,
+                options: shuffledOptions,
+                correctAnswer: correctIndex,
+                explanation: `From OpenTDB | Category: ${this.decodeURLEncoded(apiQuestion.category)} | Difficulty: ${apiQuestion.difficulty}`,
+                source: 'opentdb',
+                originalCategory: apiQuestion.category,
+                originalDifficulty: apiQuestion.difficulty
+            };
+            
+        } catch (error) {
+            console.error('Error formatting OpenTDB question:', error);
+            return null;
+        }
+    },
+    
+    decodeURLEncoded(text) {
+        try {
+            return decodeURIComponent(text.replace(/\+/g, ' '));
+        } catch (error) {
+            console.error('Error decoding text:', text, error);
+            return text;
+        }
+    },
+    
+    shuffleArray(array) {
+        const newArray = [...array];
+        for (let i = newArray.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+        }
+        return newArray;
+    },
+    
+    getOfflineQuestions(category, subject, difficulty, count) {
+        // Your existing offline questions database
+        const questions = {
+            primary: {
+                mathematics: {
+                    easy: [
+                        {
+                            question: "What is 5 + 7?",
+                            options: ["11", "12", "13", "14"],
+                            correctAnswer: 1,
+                            explanation: "5 + 7 equals 12."
+                        },
+                        {
+                            question: "How many sides does a triangle have?",
+                            options: ["2", "3", "4", "5"],
+                            correctAnswer: 1,
+                            explanation: "A triangle has 3 sides."
+                        }
+                    ]
+                },
+                science: {
+                    easy: [
+                        {
+                            question: "Which animal lays eggs?",
+                            options: ["Dog", "Cat", "Bird", "Cow"],
+                            correctAnswer: 2,
+                            explanation: "Birds lay eggs, while dogs, cats, and cows give birth to live young."
+                        }
+                    ]
+                }
+            },
+            highschool: {
+                mathematics: {
+                    easy: [
+                        {
+                            question: "What is the value of x in the equation 2x + 5 = 15?",
+                            options: ["5", "10", "15", "20"],
+                            correctAnswer: 0,
+                            explanation: "Subtract 5 from both sides: 2x = 10, then divide by 2: x = 5."
+                        }
+                    ]
+                }
+            },
+            tertiary: {
+                programming: {
+                    medium: [
+                        {
+                            question: "What does HTML stand for?",
+                            options: [
+                                "Hyper Text Markup Language",
+                                "High Tech Modern Language", 
+                                "Hyper Transfer Markup Language",
+                                "Home Tool Markup Language"
+                            ],
+                            correctAnswer: 0,
+                            explanation: "HTML stands for Hyper Text Markup Language, used for creating web pages."
+                        }
+                    ]
+                }
+            }
+        };
+        
+        const categoryQuestions = questions[category] || {};
+        const subjectQuestions = categoryQuestions[subject] || {};
+        const difficultyQuestions = subjectQuestions[difficulty] || [];
+        
+        // If no questions for specific difficulty, try any questions for this subject
+        if (difficultyQuestions.length === 0) {
+            const allSubjectQuestions = Object.values(subjectQuestions).flat();
+            if (allSubjectQuestions.length > 0) {
+                return this.shuffleArray(allSubjectQuestions).slice(0, count);
+            }
+        }
+        
+        return this.shuffleArray(difficultyQuestions).slice(0, count);
+    }
+};
+            
+           
+                
       
     // ... (previous configuration code remains the same)
 
     // Single Player System - Fixed with proper method binding
     const singlePlayerSystem = {
+
+       async startGame(category, subject, playerName, avatar, difficulty, questionCount, questionSource) {
+        console.log('🚀 Starting single player game with OpenTDB integration');
+        
+        try {
+            categoryManager.showLoading(true);
+            
+            const questionResult = await questionManager.getQuestions({
+                category,
+                subject,
+                difficulty,
+                questionCount,
+                questionSource
+            });
+            
+            if (questionResult.questions.length === 0) {
+                categoryManager.showError('No questions available for this subject and difficulty.');
+                categoryManager.showLoading(false);
+                return false;
+            }
+            
+            this.currentGame = {
+                category: category,
+                subject: subject,
+                playerName: playerName,
+                avatar: avatar,
+                questions: questionResult.questions,
+                currentQuestion: 0,
+                answers: [],
+                score: 0,
+                startTime: Date.now(),
+                timePerQuestion: 30,
+                achievements: [],
+                questionSource: questionResult.source
+            };
+            
+            console.log(`✅ Game started with ${questionResult.questions.length} questions from ${questionResult.source}`);
+            
+            this.loadQuestion(0);
+            this.startTimer();
+            categoryManager.showLoading(false);
+            
+            return true;
+            
+        } catch (error) {
+            console.error('Error starting game:', error);
+            categoryManager.showError('Error starting game. Please try again.');
+            categoryManager.showLoading(false);
+            return false;
+        }
+    },
+    
+
         currentGame: null,
         timer: null,
         timeLeft: 0,
