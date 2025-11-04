@@ -354,6 +354,27 @@
             opacity: 1;
         }
         
+        /* User Profile Styles */
+        .user-profile {
+            transition: all 0.3s ease;
+        }
+        
+        .user-avatar {
+            transition: transform 0.3s ease;
+        }
+        
+        .user-avatar:hover {
+            transform: scale(1.1);
+        }
+        
+        .stat-value {
+            font-weight: bold;
+        }
+        
+        .stat-label {
+            font-size: 0.8rem;
+        }
+        
         /* Responsive design */
         @media (max-width: 768px) {
             .category-card, .subject-card {
@@ -394,8 +415,30 @@
             .player-progress {
                 font-size: 0.9rem;
             }
+            
+            .user-profile .card-body {
+                padding: 1rem;
+            }
+            
+            .user-avatar {
+                font-size: 3rem !important;
+            }
         }
-
+        
+        /* Animation for correct/incorrect answers */
+        @keyframes highlight {
+            0% { background-color: inherit; }
+            50% { background-color: rgba(40, 167, 69, 0.2); }
+            100% { background-color: inherit; }
+        }
+        
+        .option.correct {
+            animation: highlight 1s ease;
+        }
+        
+        .option.incorrect {
+            animation: highlight 1s ease;
+        }
     </style>
 </head>
 <body>
@@ -407,16 +450,84 @@
                     <p class="mb-0 mt-1 small opacity-75">Interactive Learning Platform</p>
                 </div>
                 <div class="card-body p-4">
-                    <!-- Connection Status -->
+                    <!-- User Profile Section -->
+                    <div id="user-profile" class="user-profile d-none">
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="fas fa-user me-2"></i>Your Profile</h5>
+                                <div>
+                                    <button class="btn btn-sm btn-outline-primary me-2" id="edit-profile">
+                                        <i class="fas fa-edit me-1"></i>Edit
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" id="logout-btn">
+                                        <i class="fas fa-sign-out-alt me-1"></i>Logout
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="text-center mb-4">
+                                    <div class="user-avatar mb-3" style="font-size: 4rem;" id="profile-avatar">
+                                        👨‍💻
+                                    </div>
+                                    <h4 id="profile-username" class="mb-1">Username</h4>
+                                    <div class="level-badge">
+                                        <span class="badge bg-primary fs-6">
+                                            Level <span id="profile-level">1</span>
+                                        </span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Progress Bar -->
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between mb-1">
+                                        <small>Progress to Level <span id="profile-next-level">2</span></small>
+                                        <small><span id="profile-xp">0</span> / <span id="profile-xp-needed">100</span> XP</small>
+                                    </div>
+                                    <div class="progress" style="height: 8px;">
+                                        <div id="profile-progress" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Stats -->
+                                <div class="row text-center">
+                                    <div class="col-4">
+                                        <div class="stat-value text-primary fs-4" id="profile-quizzes">0</div>
+                                        <div class="stat-label small text-muted">Quizzes</div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="stat-value text-success fs-4" id="profile-accuracy">0%</div>
+                                        <div class="stat-label small text-muted">Accuracy</div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="stat-value text-warning fs-4" id="profile-achievements">0</div>
+                                        <div class="stat-label small text-muted">Badges</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Connection Status and User Display -->
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <div id="connection-status" class="status connecting">
                             <span class="online-indicator connecting"></span>
                             <i class="fas fa-sync-alt me-2"></i>Connecting to server...
                         </div>
-                        <div class="sound-controls">
-                            <button id="toggle-sound" class="btn btn-sm btn-outline-success">
-                                <i class="fas fa-volume-up me-1"></i> Sound On
-                            </button>
+                        <div class="d-flex align-items-center gap-2">
+                            <!-- User Display (will be shown when logged in) -->
+                            <div id="user-display" class="d-none align-items-center gap-2">
+                                <div id="user-avatar" class="multiplayer-avatar">👨‍💻</div>
+                                <div>
+                                    <div id="user-name" class="small fw-bold">Player</div>
+                                    <div id="user-level" class="small text-muted">Level 1</div>
+                                </div>
+                                <div id="user-xp" class="small text-muted">0 XP</div>
+                            </div>
+                            <div class="sound-controls">
+                                <button id="toggle-sound" class="btn btn-sm btn-outline-success">
+                                    <i class="fas fa-volume-up me-1"></i> Sound On
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -572,33 +683,43 @@
                                     </div>
                                 </div>
                             </div>
-                            <button id="start-quiz" class="btn btn-primary btn-lg px-5">
+                            <button id="start-quiz-btn" class="btn btn-primary btn-lg px-5">
                                 <i class="fas fa-play me-2"></i>Start Quiz
                             </button>
                         </div>
                     </div>
 
                     <!-- Multiplayer Setup Screen -->
-                    <div id="multiplayer-setup" class="d-none text-center">
-                        <h2 class="mb-4">Multiplayer Setup</h2>
+                    <div id="multiplayer-setup" class="d-none">
+                        <h2 class="text-center mb-4">Multiplayer Setup</h2>
                         <div class="row justify-content-center">
                             <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label class="form-label">Your Name</label>
-                                    <input type="text" id="mp-player-name" class="form-control" placeholder="Enter your name" value="Player">
-                                </div>
-                                <div class="d-grid gap-2">
-                                    <button id="create-game" class="btn btn-primary btn-lg">
-                                        <i class="fas fa-plus me-2"></i>Create New Game
-                                    </button>
-                                    <div class="my-3">OR</div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Game Code</label>
-                                        <input type="text" id="game-code" class="form-control" placeholder="Enter game code">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <label class="form-label">Your Name</label>
+                                            <input type="text" id="mp-player-name" class="form-control" placeholder="Enter your name" value="Player">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Choose Your Avatar</label>
+                                            <div id="mp-avatar-selection" class="d-flex flex-wrap gap-2 justify-content-center">
+                                                <!-- Avatars will be populated by JavaScript -->
+                                            </div>
+                                        </div>
+                                        <div class="d-grid gap-2">
+                                            <button id="create-room-btn" class="btn btn-primary btn-lg">
+                                                <i class="fas fa-plus me-2"></i>Create New Room
+                                            </button>
+                                            <div class="text-center my-2">OR</div>
+                                            <div class="mb-3">
+                                                <label class="form-label">Room Code</label>
+                                                <input type="text" id="room-code-input" class="form-control text-uppercase" placeholder="Enter 4-digit code" maxlength="4">
+                                            </div>
+                                            <button id="join-room-btn" class="btn btn-success btn-lg">
+                                                <i class="fas fa-sign-in-alt me-2"></i>Join Existing Room
+                                            </button>
+                                        </div>
                                     </div>
-                                    <button id="join-game" class="btn btn-success btn-lg">
-                                        <i class="fas fa-sign-in-alt me-2"></i>Join Existing Game
-                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -608,13 +729,16 @@
                     <div id="multiplayer-lobby" class="d-none">
                         <div class="text-center mb-4">
                             <h2>Game Lobby</h2>
-                            <p class="lead">Game Code: <strong id="game-code-display" class="fs-3">XXXX</strong></p>
-                            <p>Share this code with other players to join</p>
+                            <p class="lead">Room Code: <strong id="room-code" class="fs-3 text-primary">XXXX</strong></p>
+                            <p class="text-muted">Share this code with other players to join</p>
                         </div>
                         
                         <div class="card mb-4">
-                            <div class="card-header">
-                                <h5 class="mb-0"><i class="fas fa-users me-2"></i>Players</h5>
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="fas fa-users me-2"></i>Players (<span id="player-count">0</span>)</h5>
+                                <button id="leave-room-btn" class="btn btn-sm btn-outline-danger">
+                                    <i class="fas fa-door-open me-1"></i>Leave Room
+                                </button>
                             </div>
                             <div class="card-body">
                                 <div id="players-list">
@@ -624,7 +748,7 @@
                         </div>
                         
                         <div class="text-center">
-                            <button id="start-game" class="btn btn-success btn-lg">
+                            <button id="start-game-btn" class="btn btn-success btn-lg px-5">
                                 <i class="fas fa-play me-2"></i>Start Game
                             </button>
                         </div>
@@ -709,17 +833,17 @@
 
                         <div class="card mb-4">
                             <div class="card-header">
-                                <h5 class="mb-0"><i class="fas fa-trophy me-2"></i>Your Achievements</h5>
+                                <h5 class="mb-0"><i class="fas fa-award me-2"></i>Your Achievements</h5>
                             </div>
                             <div class="card-body">
-                                <div id="achievements-list" class="row">
+                                <div id="achievements-container" class="row">
                                     <!-- Achievements will appear here -->
                                 </div>
                             </div>
                         </div>
                         
                         <div class="text-center mt-4">
-                            <button id="play-again" class="btn btn-primary btn-lg me-3">
+                            <button id="play-again-btn" class="btn btn-primary btn-lg me-3">
                                 <i class="fas fa-redo me-2"></i>Play Again
                             </button>
                             <button id="back-to-menu" class="btn btn-outline-primary">
@@ -772,135 +896,9 @@
         <source src="https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3" type="audio/mpeg">
     </audio>
 
-    <!-- Auth Modal -->
-<div class="modal fade" id="authModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="authModalTitle">Welcome to QuizMaster! 🎓</h5>
-            </div>
-            <div class="modal-body">
-                <div id="auth-tabs">
-                    <ul class="nav nav-tabs mb-3" id="authTab" role="tablist">
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link active" id="login-tab" data-bs-toggle="tab" data-bs-target="#login" type="button">Login</button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="register-tab" data-bs-toggle="tab" data-bs-target="#register" type="button">Register</button>
-                        </li>
-                    </ul>
-                    <div class="tab-content" id="authTabContent">
-                        <!-- Login Tab -->
-                        <div class="tab-pane fade show active" id="login" role="tabpanel">
-                            <form id="loginForm">
-                                <div class="mb-3">
-                                    <label class="form-label">Email</label>
-                                    <input type="email" id="loginEmail" class="form-control" placeholder="Enter your email" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label">Password</label>
-                                    <input type="password" id="loginPassword" class="form-control" placeholder="Enter your password" required>
-                                </div>
-                                <button type="submit" class="btn btn-primary w-100 mb-2">
-                                    <i class="fas fa-sign-in-alt me-2"></i>Login
-                                </button>
-                                <div class="text-center">
-                                    <small class="text-muted">Don't have an account? <a href="#" class="switch-to-register">Register here</a></small>
-                                </div>
-                            </form>
-                        </div>
-                        
-                        <!-- Register Tab -->
-                        <div class="tab-pane fade" id="register" role="tabpanel">
-                            <form id="registerForm">
-                                <div class="mb-3">
-                                    <label class="form-label">Username</label>
-                                    <input type="text" id="registerUsername" class="form-control" placeholder="Choose a username" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label">Email</label>
-                                    <input type="email" id="registerEmail" class="form-control" placeholder="Enter your email" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label">Password</label>
-                                    <input type="password" id="registerPassword" class="form-control" placeholder="Create a password" required>
-                                    <div class="form-text">Password must be at least 6 characters</div>
-                                </div>
-                                <button type="submit" class="btn btn-success w-100 mb-2">
-                                    <i class="fas fa-user-plus me-2"></i>Create Account
-                                </button>
-                                <div class="text-center">
-                                    <small class="text-muted">Already have an account? <a href="#" class="switch-to-login">Login here</a></small>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- User Profile Section - Add to your main card body -->
-<div id="user-profile" class="d-none">
-    <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="fas fa-user me-2"></i>Your Profile</h5>
-            <div>
-                <button class="btn btn-sm btn-outline-primary me-2" id="edit-profile">
-                    <i class="fas fa-edit me-1"></i>Edit
-                </button>
-                <button class="btn btn-sm btn-outline-secondary" id="logout-btn">
-                    <i class="fas fa-sign-out-alt me-1"></i>Logout
-                </button>
-            </div>
-        </div>
-        <div class="card-body">
-            <div class="text-center mb-4">
-                <div class="user-avatar mb-3" style="font-size: 4rem;" id="profile-avatar">
-                    👨‍💻
-                </div>
-                <h4 id="profile-username" class="mb-1">Username</h4>
-                <div class="level-badge">
-                    <span class="badge bg-primary fs-6">
-                        Level <span id="profile-level">1</span>
-                    </span>
-                </div>
-            </div>
-            
-            <!-- Progress Bar -->
-            <div class="mb-3">
-                <div class="d-flex justify-content-between mb-1">
-                    <small>Progress to Level <span id="profile-next-level">2</span></small>
-                    <small><span id="profile-xp">0</span> / <span id="profile-xp-needed">100</span> XP</small>
-                </div>
-                <div class="progress" style="height: 8px;">
-                    <div id="profile-progress" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                </div>
-            </div>
-            
-            <!-- Stats -->
-            <div class="row text-center">
-                <div class="col-4">
-                    <div class="stat-value text-primary fs-4" id="profile-quizzes">0</div>
-                    <div class="stat-label small text-muted">Quizzes</div>
-                </div>
-                <div class="col-4">
-                    <div class="stat-value text-success fs-4" id="profile-accuracy">0%</div>
-                    <div class="stat-label small text-muted">Accuracy</div>
-                </div>
-                <div class="col-4">
-                    <div class="stat-value text-warning fs-4" id="profile-achievements">0</div>
-                    <div class="stat-label small text-muted">Badges</div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="script.js"></script>
-
 </body>
 </html>
