@@ -628,201 +628,103 @@
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     
     <script>
-        // Complete JavaScript code will be in the next file
-        // This is split due to character limits
-        // Configuration
-const BACKEND_URL = 'https://quiz-app-backend-3g8p.onrender.com';
+        // Configuration - Single Player Only (No Backend Required)
+const BACKEND_URL = 'https://quiz-master-backend.onrender.com';
 
 // App State
 let currentState = {
     screen: 'category-selection',
     category: null,
     subject: null,
-    gameMode: 'single',
-    gameId: null,
-    isHost: false,
-    players: [],
-    questions: [],
-    currentQuestion: 0,
-    answers: [],
-    score: 0
+    gameMode: 'single'
 };
 
-// Sound System
+// Sound System (Simplified)
 const soundSystem = {
-    enabled: true,
-    sounds: {
-        correct: document.getElementById('correct-sound'),
-        wrong: document.getElementById('wrong-sound'),
-        gameStart: document.getElementById('game-start-sound'),
-        countdown: document.getElementById('countdown-sound'),
-        victory: document.getElementById('victory-sound')
-    },
-    
+    enabled: false, // Disable sounds for now
     play(soundName) {
         if (!this.enabled) return;
-        
-        try {
-            const sound = this.sounds[soundName];
-            if (sound) {
-                sound.currentTime = 0;
-                sound.play().catch(e => console.log('Sound play failed:', e));
-            }
-        } catch (error) {
-            console.log('Sound error:', error);
-        }
+        console.log('🔊 Sound:', soundName);
     },
-    
     toggle() {
         this.enabled = !this.enabled;
         const button = document.getElementById('toggle-sound');
-        
-        if (this.enabled) {
-            button.innerHTML = '<i class="fas fa-volume-up me-1"></i> Sound On';
-            button.classList.remove('btn-outline-secondary');
-            button.classList.add('btn-outline-success');
-        } else {
-            button.innerHTML = '<i class="fas fa-volume-mute me-1"></i> Sound Off';
-            button.classList.remove('btn-outline-success');
-            button.classList.add('btn-outline-secondary');
-        }
+        button.innerHTML = this.enabled ? 
+            '<i class="fas fa-volume-up me-1"></i> Sound On' : 
+            '<i class="fas fa-volume-mute me-1"></i> Sound Off';
     }
 };
 
 // Avatar System
 const avatarSystem = {
-    avatars: [
-        { emoji: '👨‍💻', name: 'Technologist' },
-        { emoji: '👩‍🚀', name: 'Astronaut' },
-        { emoji: '🦸', name: 'Superhero' },
-        { emoji: '👨‍🎓', name: 'Student' },
-        { emoji: '👩‍🎨', name: 'Artist' },
-        { emoji: '🧙', name: 'Wizard' },
-        { emoji: '🤖', name: 'Robot' },
-        { emoji: '🐱', name: 'Cat' },
-        { emoji: '🦊', name: 'Fox' },
-        { emoji: '🐼', name: 'Panda' },
-        { emoji: '🦁', name: 'Lion' },
-        { emoji: '🐯', name: 'Tiger' }
-    ],
-    
     selectedAvatar: '👨‍💻',
-    
     init() {
         this.renderAvatarSelection();
-        this.loadSavedAvatar();
     },
-    
     renderAvatarSelection() {
         const container = document.getElementById('avatar-selection');
         if (!container) return;
         
-        container.innerHTML = this.avatars.map(avatar => `
-            <div class="avatar-option ${avatar.emoji === this.selectedAvatar ? 'selected' : ''}" 
-                 data-avatar="${avatar.emoji}" 
-                 title="${avatar.name}">
-                <div class="avatar-display" style="font-size: 2rem; cursor: pointer; padding: 5px; border-radius: 10px; border: 3px solid transparent;">
-                    ${avatar.emoji}
+        const avatars = ['👨‍💻', '👩‍🚀', '🦸', '👨‍🎓', '👩‍🎨', '🤖', '🐱', '🦊'];
+        
+        container.innerHTML = avatars.map(avatar => `
+            <div class="avatar-option ${avatar === this.selectedAvatar ? 'selected' : ''}" 
+                 data-avatar="${avatar}">
+                <div class="avatar-display" style="font-size: 2rem; cursor: pointer; padding: 5px; border-radius: 10px; border: 3px solid ${avatar === this.selectedAvatar ? '#4361ee' : 'transparent'}">
+                    ${avatar}
                 </div>
             </div>
         `).join('');
         
-        // Add click handlers
         container.querySelectorAll('.avatar-option').forEach(option => {
             option.addEventListener('click', () => {
-                this.selectAvatar(option.dataset.avatar);
+                this.selectedAvatar = option.dataset.avatar;
+                this.renderAvatarSelection();
             });
         });
-    },
-    
-    selectAvatar(avatarEmoji) {
-        this.selectedAvatar = avatarEmoji;
-        this.renderAvatarSelection();
-        this.saveAvatar();
-    },
-    
-    saveAvatar() {
-        localStorage.setItem('selectedAvatar', this.selectedAvatar);
-    },
-    
-    loadSavedAvatar() {
-        const saved = localStorage.getItem('selectedAvatar');
-        if (saved) {
-            this.selectedAvatar = saved;
-        }
     }
 };
 
 // Category and Subject Management
 const categoryManager = {
-    categories: {},
+    categories: {
+        primary: {
+            name: "Primary Level",
+            subjects: ["mathematics", "science", "english", "social_studies"],
+            difficulties: ["easy", "medium"]
+        },
+        highschool: {
+            name: "High School", 
+            subjects: ["mathematics", "physics", "chemistry", "biology", "history", "geography"],
+            difficulties: ["easy", "medium", "hard"]
+        },
+        tertiary: {
+            name: "Tertiary Level",
+            subjects: ["programming", "business", "engineering", "medicine", "law", "economics"],
+            difficulties: ["medium", "hard"]
+        }
+    },
     currentCategory: null,
     currentSubject: null,
     
-    async init() {
-        console.log('🔄 Initializing category manager...');
-        await this.loadCategories();
+    init() {
+        console.log('🎯 Category manager initialized');
         this.setupEventListeners();
-        console.log('✅ Category manager initialized');
-    },
-    
-    async loadCategories() {
-        try {
-            console.log('📡 Loading categories from API...');
-            const response = await fetch(`${BACKEND_URL}/api/categories`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            this.categories = await response.json();
-            console.log('✅ Categories loaded:', Object.keys(this.categories));
-        } catch (error) {
-            console.error('❌ Failed to load categories:', error);
-            // Fallback categories
-            this.categories = {
-                primary: {
-                    name: "Primary Level",
-                    subjects: ["mathematics", "science", "english", "social_studies"],
-                    difficulties: ["easy", "medium"],
-                    description: "Grades 1-6: Basic subjects and foundational knowledge"
-                },
-                highschool: {
-                    name: "High School", 
-                    subjects: ["mathematics", "physics", "chemistry", "biology", "history", "geography"],
-                    difficulties: ["easy", "medium", "hard"],
-                    description: "Grades 7-12: Advanced sciences and specialized subjects"
-                },
-                tertiary: {
-                    name: "Tertiary Level",
-                    subjects: ["programming", "business", "engineering", "medicine", "law", "economics"],
-                    difficulties: ["medium", "hard"],
-                    description: "College & University: Professional and specialized topics"
-                }
-            };
-            console.log('📋 Using fallback categories');
-        }
     },
     
     setupEventListeners() {
-        console.log('🎯 Setting up category event listeners...');
-        
         // Category selection
         document.querySelectorAll('.category-card').forEach(card => {
-            card.addEventListener('click', (e) => {
-                console.log('🎯 Category card clicked:', card.dataset.category);
+            card.addEventListener('click', () => {
+                console.log('🎯 Category clicked:', card.dataset.category);
                 this.selectCategory(card.dataset.category);
             });
         });
         
-        // Back to categories button
-        const backButton = document.getElementById('back-to-categories');
-        if (backButton) {
-            backButton.addEventListener('click', () => {
-                console.log('🔙 Back to categories clicked');
-                this.showCategorySelection();
-            });
-        }
-        
-        console.log('✅ Event listeners set up');
+        // Back to categories
+        document.getElementById('back-to-categories').addEventListener('click', () => {
+            this.showCategorySelection();
+        });
     },
     
     selectCategory(categoryId) {
@@ -843,31 +745,22 @@ const categoryManager = {
         const category = this.categories[categoryId];
         
         if (!category) {
-            console.error('❌ Category not found:', categoryId);
-            alert('Category not found. Please try again.');
+            console.error('Category not found:', categoryId);
             return;
         }
         
-        console.log('✅ Category selected:', categoryId, category.name);
+        console.log('✅ Category selected:', category.name);
         this.showSubjectSelection(category);
     },
     
     showSubjectSelection(category) {
-        console.log('📚 Showing subject selection for:', category.name);
+        console.log('📚 Showing subjects for:', category.name);
         
         // Update category title
-        const titleElement = document.getElementById('category-title');
-        if (titleElement) {
-            titleElement.textContent = `Select Subject - ${category.name}`;
-        }
+        document.getElementById('category-title').textContent = `Select Subject - ${category.name}`;
         
         // Load subjects
         const container = document.getElementById('subjects-container');
-        if (!container) {
-            console.error('❌ Subjects container not found');
-            return;
-        }
-        
         container.innerHTML = '';
         
         const subjectNames = {
@@ -892,9 +785,7 @@ const categoryManager = {
             const subject = subjectNames[subjectId] || { 
                 icon: 'fa-book', 
                 color: 'secondary', 
-                name: subjectId.split('_').map(word => 
-                    word.charAt(0).toUpperCase() + word.slice(1)
-                ).join(' ')
+                name: subjectId 
             };
             
             const col = document.createElement('div');
@@ -911,32 +802,20 @@ const categoryManager = {
             container.appendChild(col);
         });
         
-        // Update difficulty options based on category
+        // Update difficulty options
         this.updateDifficultyOptions(category.difficulties);
         
         // Add subject selection event listeners
         setTimeout(() => {
-            this.setupSubjectEventListeners();
+            document.querySelectorAll('.subject-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    this.selectSubject(card.dataset.subject);
+                });
+            });
         }, 100);
         
         // Show subject selection screen
         this.showScreen('subject-selection');
-        
-        console.log('✅ Subject selection screen ready');
-    },
-    
-    setupSubjectEventListeners() {
-        console.log('🎯 Setting up subject event listeners...');
-        
-        document.querySelectorAll('.subject-card').forEach(card => {
-            card.addEventListener('click', (e) => {
-                const subjectId = card.dataset.subject;
-                console.log('🎯 Subject card clicked:', subjectId);
-                this.selectSubject(subjectId);
-            });
-        });
-        
-        console.log('✅ Subject event listeners set up');
     },
     
     selectSubject(subjectId) {
@@ -959,11 +838,6 @@ const categoryManager = {
     
     updateDifficultyOptions(availableDifficulties) {
         const select = document.getElementById('difficulty-select');
-        if (!select) {
-            console.error('❌ Difficulty select element not found');
-            return;
-        }
-        
         select.innerHTML = '';
         
         availableDifficulties.forEach(diff => {
@@ -972,19 +846,12 @@ const categoryManager = {
             option.textContent = diff.charAt(0).toUpperCase() + diff.slice(1);
             select.appendChild(option);
         });
-        
-        console.log('✅ Difficulty options updated:', availableDifficulties);
     },
     
     showCategorySelection() {
         this.showScreen('category-selection');
         this.currentCategory = null;
         this.currentSubject = null;
-        
-        // Clear subject selections
-        document.querySelectorAll('.category-card').forEach(card => {
-            card.classList.remove('selected', 'border-primary');
-        });
     },
     
     showScreen(screenName) {
@@ -1012,45 +879,35 @@ const categoryManager = {
         if (targetScreen) {
             targetScreen.classList.remove('d-none');
             currentState.screen = screenName;
-            console.log('✅ Screen shown:', screenName);
-        } else {
-            console.error('❌ Screen not found:', screenName);
         }
     },
     
     getCurrentSettings() {
-        const difficultySelect = document.getElementById('difficulty-select');
-        const questionCountSelect = document.getElementById('question-count');
-        const gameModeRadio = document.querySelector('input[name="gameMode"]:checked');
-        
         return {
             category: this.currentCategory,
             subject: this.currentSubject,
-            difficulty: difficultySelect ? difficultySelect.value : 'medium',
-            questionCount: questionCountSelect ? parseInt(questionCountSelect.value) : 10,
-            gameMode: gameModeRadio ? gameModeRadio.value : 'single'
+            difficulty: document.getElementById('difficulty-select').value,
+            questionCount: parseInt(document.getElementById('question-count').value),
+            gameMode: document.querySelector('input[name="gameMode"]:checked').value
         };
     }
 };
 
-// Single Player System
+// Single Player System (Works Offline)
 const singlePlayerSystem = {
     currentGame: null,
     timer: null,
     timeLeft: 0,
     
     init() {
-        console.log('🎮 Single player system initialized');
+        console.log('🎮 Single player system ready');
     },
     
-    async startGame(category, subject, playerName, avatar, difficulty, questionCount) {
-        console.log('🚀 Starting single player game:', { 
-            category, subject, difficulty, questionCount 
-        });
+    startGame(category, subject, playerName, avatar, difficulty, questionCount) {
+        console.log('🚀 Starting single player game');
         
         try {
-            // For now, use fallback questions until API is ready
-            const questions = this.getFallbackQuestions(category, subject).slice(0, questionCount);
+            const questions = this.getQuestions(category, subject).slice(0, questionCount);
             
             this.currentGame = {
                 category: category,
@@ -1062,13 +919,7 @@ const singlePlayerSystem = {
                 answers: [],
                 score: 0,
                 startTime: Date.now(),
-                timePerQuestion: 30,
-                stats: {
-                    correctAnswers: 0,
-                    totalTime: 0,
-                    fastestAnswer: null,
-                    slowestAnswer: null
-                }
+                timePerQuestion: 30
             };
             
             console.log('✅ Game started with', questions.length, 'questions');
@@ -1076,15 +927,11 @@ const singlePlayerSystem = {
             this.loadQuestion(0);
             this.startTimer();
             
-            if (window.soundSystem) {
-                window.soundSystem.play('gameStart');
-            }
-            
             return true;
             
         } catch (error) {
-            console.error('❌ Error starting game:', error);
-            alert('Error starting game: ' + error.message);
+            console.error('Error starting game:', error);
+            alert('Error starting game');
             return false;
         }
     },
@@ -1099,47 +946,20 @@ const singlePlayerSystem = {
         const question = this.currentGame.questions[questionIndex];
         
         // Update UI
-        this.updateQuestionUI(questionIndex, question);
-        this.updateNavigation();
-        this.resetTimer();
-    },
-    
-    updateQuestionUI(questionIndex, question) {
-        // Update subject title
-        const subjectElement = document.getElementById('current-subject');
-        if (subjectElement) {
-            subjectElement.textContent = 
-                `${this.currentGame.subject.charAt(0).toUpperCase() + this.currentGame.subject.slice(1)} Quiz`;
-        }
+        document.getElementById('current-subject').textContent = 
+            `${this.currentGame.subject.charAt(0).toUpperCase() + this.currentGame.subject.slice(1)} Quiz`;
         
-        // Update question counter
-        const countElement = document.getElementById('question-count');
-        if (countElement) {
-            countElement.textContent = 
-                `Question ${questionIndex + 1} of ${this.currentGame.questions.length}`;
-        }
+        document.getElementById('question-count').textContent = 
+            `Question ${questionIndex + 1} of ${this.currentGame.questions.length}`;
+        
+        document.getElementById('question-text').textContent = question.question;
         
         // Update progress bar
         const progress = ((questionIndex + 1) / this.currentGame.questions.length) * 100;
-        const progressBar = document.getElementById('progress-bar');
-        if (progressBar) {
-            progressBar.style.width = `${progress}%`;
-        }
-        
-        // Update question text
-        const questionElement = document.getElementById('question-text');
-        if (questionElement) {
-            questionElement.textContent = question.question;
-        }
+        document.getElementById('progress-bar').style.width = `${progress}%`;
         
         // Load options
-        this.loadOptions(question);
-    },
-    
-    loadOptions(question) {
         const optionsContainer = document.getElementById('options-container');
-        if (!optionsContainer) return;
-        
         optionsContainer.innerHTML = '';
         
         question.options.forEach((option, i) => {
@@ -1154,6 +974,9 @@ const singlePlayerSystem = {
             optionElement.addEventListener('click', () => this.selectOption(i));
             optionsContainer.appendChild(optionElement);
         });
+        
+        this.updateNavigation();
+        this.resetTimer();
     },
     
     selectOption(selectedIndex) {
@@ -1166,14 +989,11 @@ const singlePlayerSystem = {
         // Record answer
         this.currentGame.answers[currentIndex] = {
             selected: selectedIndex,
-            correct: question.correct,
-            isCorrect: isCorrect,
-            timestamp: Date.now()
+            isCorrect: isCorrect
         };
         
-        // Update stats
+        // Update score
         if (isCorrect) {
-            this.currentGame.stats.correctAnswers++;
             this.currentGame.score += 10;
         }
         
@@ -1191,11 +1011,6 @@ const singlePlayerSystem = {
                 option.classList.add('correct');
             }
         });
-        
-        // Play sound
-        if (window.soundSystem) {
-            window.soundSystem.play(isCorrect ? 'correct' : 'wrong');
-        }
         
         // Auto-advance after delay
         setTimeout(() => {
@@ -1232,7 +1047,7 @@ const singlePlayerSystem = {
             
             if (this.timeLeft <= 0) {
                 clearInterval(this.timer);
-                this.handleTimeUp();
+                this.nextQuestion();
             }
         }, 1000);
     },
@@ -1246,38 +1061,19 @@ const singlePlayerSystem = {
     },
     
     updateTimerDisplay() {
-        const timerElement = document.getElementById('time-left');
-        if (timerElement) {
-            timerElement.textContent = this.timeLeft;
-        }
-    },
-    
-    handleTimeUp() {
-        this.nextQuestion();
+        document.getElementById('time-left').textContent = this.timeLeft;
     },
     
     finishGame() {
         clearInterval(this.timer);
         
-        // Calculate final stats
-        this.currentGame.stats.totalTime = Date.now() - this.currentGame.startTime;
-        
         // Show results
-        this.showResults();
-        
-        console.log('🎮 Single player game completed');
-    },
-    
-    showResults() {
-        if (!this.currentGame) return;
-        
-        // Update results screen
         document.getElementById('final-score').textContent = 
-            `${this.currentGame.stats.correctAnswers}/${this.currentGame.questions.length}`;
+            `${this.currentGame.score / 10}/${this.currentGame.questions.length}`;
         document.getElementById('points-earned').textContent = this.currentGame.score;
         
         // Show confetti for good scores
-        if (this.currentGame.stats.correctAnswers >= this.currentGame.questions.length * 0.8) {
+        if (this.currentGame.score >= this.currentGame.questions.length * 8) {
             document.getElementById('confetti').style.display = 'block';
             setTimeout(() => {
                 document.getElementById('confetti').style.display = 'none';
@@ -1303,37 +1099,71 @@ const singlePlayerSystem = {
         }
     },
     
-    getFallbackQuestions(category, subject) {
-        const fallbackQuestions = {
+    getQuestions(category, subject) {
+        // Comprehensive fallback questions
+        const questions = {
             primary: {
                 mathematics: [
                     {
                         question: "What is 5 + 7?",
                         options: ["11", "12", "13", "14"],
-                        correct: 1,
-                        explanation: "5 + 7 equals 12"
+                        correct: 1
                     },
                     {
                         question: "How many sides does a triangle have?",
                         options: ["2", "3", "4", "5"],
-                        correct: 1,
-                        explanation: "A triangle has 3 sides"
+                        correct: 1
+                    },
+                    {
+                        question: "What is 8 × 3?",
+                        options: ["16", "24", "32", "40"],
+                        correct: 1
+                    },
+                    {
+                        question: "What is 15 - 6?",
+                        options: ["8", "9", "10", "11"],
+                        correct: 1
+                    },
+                    {
+                        question: "How many minutes are in an hour?",
+                        options: ["50", "60", "70", "100"],
+                        correct: 1
                     }
                 ],
                 science: [
                     {
                         question: "Which animal lays eggs?",
                         options: ["Dog", "Cat", "Bird", "Cow"],
-                        correct: 2,
-                        explanation: "Birds lay eggs"
+                        correct: 2
+                    },
+                    {
+                        question: "What planet do we live on?",
+                        options: ["Mars", "Venus", "Earth", "Jupiter"],
+                        correct: 2
+                    },
+                    {
+                        question: "What do plants need to grow?",
+                        options: ["Water", "Sunlight", "Soil", "All of the above"],
+                        correct: 3
                     }
                 ],
                 english: [
                     {
                         question: "What is the past tense of 'run'?",
                         options: ["Running", "Runned", "Ran", "Runs"],
-                        correct: 2,
-                        explanation: "The past tense of run is ran"
+                        correct: 2
+                    },
+                    {
+                        question: "Which word is a noun?",
+                        options: ["Run", "Beautiful", "School", "Quickly"],
+                        correct: 2
+                    }
+                ],
+                social_studies: [
+                    {
+                        question: "What is the capital of the United States?",
+                        options: ["New York", "Los Angeles", "Washington D.C.", "Chicago"],
+                        correct: 2
                     }
                 ]
             },
@@ -1342,16 +1172,26 @@ const singlePlayerSystem = {
                     {
                         question: "What is the value of π (pi) approximately?",
                         options: ["3.14", "2.71", "1.61", "4.13"],
-                        correct: 0,
-                        explanation: "π is approximately 3.14159"
+                        correct: 0
+                    },
+                    {
+                        question: "Solve for x: 2x + 5 = 15",
+                        options: ["5", "10", "7.5", "20"],
+                        correct: 0
                     }
                 ],
                 physics: [
                     {
                         question: "What is the unit of force?",
                         options: ["Joule", "Watt", "Newton", "Volt"],
-                        correct: 2,
-                        explanation: "Force is measured in Newtons"
+                        correct: 2
+                    }
+                ],
+                chemistry: [
+                    {
+                        question: "What is the chemical symbol for water?",
+                        options: ["H2O", "CO2", "O2", "NaCl"],
+                        correct: 0
                     }
                 ]
             },
@@ -1360,48 +1200,46 @@ const singlePlayerSystem = {
                     {
                         question: "What does HTML stand for?",
                         options: ["Hyper Text Markup Language", "High Tech Modern Language", "Hyper Transfer Markup Language", "Home Tool Markup Language"],
-                        correct: 0,
-                        explanation: "HTML stands for Hyper Text Markup Language"
+                        correct: 0
+                    }
+                ],
+                business: [
+                    {
+                        question: "What does ROI stand for in business?",
+                        options: ["Return on Investment", "Rate of Interest", "Return of Income", "Risk of Investment"],
+                        correct: 0
                     }
                 ]
             }
         };
 
-        return fallbackQuestions[category]?.[subject] || fallbackQuestions.primary.mathematics;
+        return questions[category]?.[subject] || questions.primary.mathematics;
     }
 };
 
 // Event Listeners
 function setupEventListeners() {
-    console.log('🎯 Setting up main event listeners...');
-    
     // Start quiz button
-    const startQuizBtn = document.getElementById('start-quiz');
-    if (startQuizBtn) {
-        startQuizBtn.addEventListener('click', startQuiz);
-        console.log('✅ Start quiz button listener added');
-    }
+    document.getElementById('start-quiz').addEventListener('click', startQuiz);
     
     // Navigation buttons
-    document.getElementById('next-question')?.addEventListener('click', nextQuestion);
-    document.getElementById('prev-question')?.addEventListener('click', prevQuestion);
-    document.getElementById('submit-quiz')?.addEventListener('click', finishQuiz);
-    document.getElementById('play-again')?.addEventListener('click', playAgain);
-    document.getElementById('back-to-menu')?.addEventListener('click', backToMenu);
+    document.getElementById('next-question').addEventListener('click', nextQuestion);
+    document.getElementById('prev-question').addEventListener('click', prevQuestion);
+    document.getElementById('submit-quiz').addEventListener('click', finishQuiz);
+    document.getElementById('play-again').addEventListener('click', playAgain);
+    document.getElementById('back-to-menu').addEventListener('click', backToMenu);
     
     // Sound toggle
-    document.getElementById('toggle-sound')?.addEventListener('click', () => {
+    document.getElementById('toggle-sound').addEventListener('click', () => {
         soundSystem.toggle();
     });
-    
-    console.log('✅ All event listeners set up');
 }
 
 function startQuiz() {
-    console.log('🎮 Start quiz button clicked');
+    console.log('🎮 Start quiz clicked');
     
     const settings = categoryManager.getCurrentSettings();
-    console.log('📋 Current settings:', settings);
+    console.log('Settings:', settings);
     
     if (!settings.category || !settings.subject) {
         alert('Please select both education level and subject!');
@@ -1409,22 +1247,9 @@ function startQuiz() {
     }
 
     const playerName = document.getElementById('player-name').value || 'Player';
-    const avatar = window.avatarSystem ? window.avatarSystem.selectedAvatar : '👨‍💻';
+    const avatar = avatarSystem.selectedAvatar;
 
-    console.log('👤 Player info:', { playerName, avatar });
-
-    if (settings.gameMode === 'multi') {
-        console.log('🎯 Starting multiplayer game');
-        // Multiplayer logic would go here
-        alert('Multiplayer mode coming soon! Using single player for now.');
-        startSinglePlayerGame(settings, playerName, avatar);
-    } else {
-        console.log('🎯 Starting single player game');
-        startSinglePlayerGame(settings, playerName, avatar);
-    }
-}
-
-function startSinglePlayerGame(settings, playerName, avatar) {
+    // Force single player for now (backend is down)
     singlePlayerSystem.startGame(
         settings.category,
         settings.subject, 
@@ -1432,13 +1257,10 @@ function startSinglePlayerGame(settings, playerName, avatar) {
         avatar,
         settings.difficulty,
         settings.questionCount
-    ).then(success => {
-        if (success) {
-            categoryManager.showScreen('quiz-screen');
-            document.getElementById('multiplayer-status').classList.add('d-none');
-            console.log('✅ Single player game started successfully');
-        }
-    });
+    );
+    
+    categoryManager.showScreen('quiz-screen');
+    document.getElementById('multiplayer-status').classList.add('d-none');
 }
 
 function nextQuestion() {
@@ -1462,36 +1284,23 @@ function backToMenu() {
 }
 
 // Initialize everything when page loads
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', () => {
     console.log('🚀 Initializing QuizMaster App...');
     
-    try {
-        // Initialize all systems
-        await categoryManager.init();
-        avatarSystem.init();
-        singlePlayerSystem.init();
-        setupEventListeners();
-        
-        // Make systems globally available for debugging
-        window.singlePlayerSystem = singlePlayerSystem;
-        window.categoryManager = categoryManager;
-        window.soundSystem = soundSystem;
-        
-        console.log('🎉 QuizMaster App initialized successfully!');
-        
-        // Add debug helper
-        window.debugApp = function() {
-            console.log('🔍 Debug Info:', {
-                currentState,
-                categories: categoryManager.categories,
-                currentCategory: categoryManager.currentCategory,
-                currentSubject: categoryManager.currentSubject
-            });
-        };
-        
-    } catch (error) {
-        console.error('❌ App initialization failed:', error);
-    }
+    // Initialize all systems
+    categoryManager.init();
+    avatarSystem.init();
+    singlePlayerSystem.init();
+    setupEventListeners();
+    
+    console.log('🎉 App initialized successfully!');
+    
+    // Debug helper
+    window.debugApp = function() {
+        console.log('Current state:', currentState);
+        console.log('Current category:', categoryManager.currentCategory);
+        console.log('Current subject:', categoryManager.currentSubject);
+    };
 });
     </script>
 </body>
