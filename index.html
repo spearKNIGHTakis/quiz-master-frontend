@@ -962,9 +962,8 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script>
-    
-    // QuizMaster - Complete JavaScript with Real Multiplayer
+    <script>
+        // QuizMaster - Complete JavaScript with Real Multiplayer
 console.log('🚀 Loading QuizMaster JavaScript...');
 
 // Configuration
@@ -1015,6 +1014,7 @@ const avatarSystem = {
     init() {
         console.log('👤 Avatar system initialized');
         this.renderAvatarSelection();
+        this.renderMultiplayerAvatarSelection();
     },
     
     renderAvatarSelection() {
@@ -1036,6 +1036,31 @@ const avatarSystem = {
             option.addEventListener('click', () => {
                 this.selectedAvatar = option.dataset.avatar;
                 this.renderAvatarSelection();
+                this.renderMultiplayerAvatarSelection();
+            });
+        });
+    },
+
+    renderMultiplayerAvatarSelection() {
+        const container = document.getElementById('mp-avatar-selection');
+        if (!container) return;
+        
+        const avatars = ['👨‍💻', '👩‍🚀', '🦸', '👨‍🎓', '👩‍🎨', '🤖', '🐱', '🦊'];
+        
+        container.innerHTML = avatars.map(avatar => `
+            <div class="avatar-option ${avatar === this.selectedAvatar ? 'selected' : ''}" 
+                 data-avatar="${avatar}">
+                <div class="avatar-display" style="font-size: 2rem; cursor: pointer; padding: 5px; border-radius: 10px; border: 3px solid ${avatar === this.selectedAvatar ? '#4361ee' : 'transparent'}">
+                    ${avatar}
+                </div>
+            </div>
+        `).join('');
+        
+        container.querySelectorAll('.avatar-option').forEach(option => {
+            option.addEventListener('click', () => {
+                this.selectedAvatar = option.dataset.avatar;
+                this.renderAvatarSelection();
+                this.renderMultiplayerAvatarSelection();
             });
         });
     }
@@ -1315,7 +1340,9 @@ const categoryManager = {
             'multiplayer-setup',
             'multiplayer-lobby',
             'quiz-screen',
-            'results-screen'
+            'results-screen',
+            'multiplayer-quiz-screen',
+            'multiplayer-results-screen'
         ];
         
         screens.forEach(screen => {
@@ -1679,6 +1706,103 @@ const multiplayerSystem = {
     init() {
         console.log('🎮 Multiplayer system initialized');
         this.setupSocketListeners();
+        this.createMissingScreens();
+    },
+
+    createMissingScreens() {
+        // Create missing multiplayer screens dynamically
+        const cardBody = document.querySelector('.card-body');
+        
+        // Multiplayer Quiz Screen
+        if (!document.getElementById('multiplayer-quiz-screen')) {
+            const mpQuizScreen = document.createElement('div');
+            mpQuizScreen.id = 'multiplayer-quiz-screen';
+            mpQuizScreen.className = 'd-none';
+            mpQuizScreen.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h3 id="mp-current-subject" class="mb-0">Loading Quiz...</h3>
+                        <span class="badge bg-primary" id="mp-question-count-display">Question 1 of 10</span>
+                    </div>
+                    <div class="timer">
+                        <i class="fas fa-clock me-2"></i><span id="mp-time-left">30</span>s
+                    </div>
+                </div>
+                
+                <div class="progress mb-4">
+                    <div id="mp-progress-bar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
+                </div>
+                
+                <!-- Multiplayer Scoreboard -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-trophy me-2"></i>Live Scoreboard</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="multiplayer-scoreboard">
+                            <!-- Players will appear here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Question Feedback -->
+                <div id="mp-question-feedback" class="question-feedback">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <span id="mp-feedback-text"></span>
+                </div>
+                
+                <div class="card question-card">
+                    <div class="card-body">
+                        <h4 id="mp-question-text" class="card-title">Loading question...</h4>
+                        <div id="mp-options-container" class="mt-4">
+                            <!-- Options will appear here -->
+                        </div>
+                    </div>
+                </div>
+            `;
+            cardBody.appendChild(mpQuizScreen);
+        }
+
+        // Multiplayer Results Screen
+        if (!document.getElementById('multiplayer-results-screen')) {
+            const mpResultsScreen = document.createElement('div');
+            mpResultsScreen.id = 'multiplayer-results-screen';
+            mpResultsScreen.className = 'd-none';
+            mpResultsScreen.innerHTML = `
+                <div class="text-center mb-5">
+                    <h2>Game Finished! 🎉</h2>
+                    <div class="display-4 fw-bold text-primary mb-2" id="mp-final-score">Winner!</div>
+                    <div class="d-flex align-items-center justify-content-center mb-3">
+                        <div id="mp-winner-avatar" class="multiplayer-avatar me-3" style="width: 60px; height: 60px; font-size: 1.5rem;"></div>
+                        <div>
+                            <h4 id="mp-winner-name" class="mb-1">Player</h4>
+                            <p class="mb-0 text-muted" id="mp-winner-score">0 points</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-trophy me-2"></i>Final Leaderboard</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="mp-leaderboard" class="leaderboard">
+                            <!-- Leaderboard will appear here -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <button id="play-again-multiplayer" class="btn btn-primary btn-lg me-3">
+                        <i class="fas fa-redo me-2"></i>Play Again
+                    </button>
+                    <button id="back-to-multiplayer-setup" class="btn btn-outline-primary">
+                        <i class="fas fa-home me-2"></i>Multiplayer Menu
+                    </button>
+                </div>
+            `;
+            cardBody.appendChild(mpResultsScreen);
+        }
     },
     
     setupSocketListeners() {
@@ -2088,458 +2212,460 @@ const multiplayerSystem = {
     },
 
     loadQuestion(questionIndex) {
-    if (!this.gameState || questionIndex >= this.gameState.questions.length) {
-        // Game finished
-        this.showResults(this.gameState.players);
-        return;
-    }
-    
-    this.gameState.currentQuestion = questionIndex;
-    const question = this.gameState.questions[questionIndex];
-    
-    // Reset answered status for new question
-    this.players.forEach(player => {
-        player.hasAnswered = false;
-    });
-    
-    // Update UI
-    document.getElementById('mp-current-subject').textContent = 
-        `${this.currentRoom.settings.category} - ${this.currentRoom.settings.subject}`;
-    
-    document.getElementById('mp-question-count-display').textContent = 
-        `Question ${questionIndex + 1} of ${this.gameState.questions.length}`;
-    
-    document.getElementById('mp-question-text').textContent = question.question;
-    
-    // Update progress bar
-    const progress = ((questionIndex) / this.gameState.questions.length) * 100;
-    document.getElementById('mp-progress-bar').style.width = `${progress}%`;
-    
-    // Render options
-    const optionsContainer = document.getElementById('mp-options-container');
-    optionsContainer.innerHTML = '';
-    
-    question.options.forEach((option, index) => {
-        const optionElement = document.createElement('div');
-        optionElement.className = 'option';
-        optionElement.innerHTML = `
-            <div class="option-content">
-                <div class="option-letter">${String.fromCharCode(65 + index)}</div>
-                <div class="option-text">${option}</div>
-            </div>
-        `;
+        if (!this.gameState || questionIndex >= this.gameState.questions.length) {
+            // Game finished
+            this.showResults(this.gameState.players);
+            return;
+        }
         
-        optionElement.addEventListener('click', () => {
-            this.selectAnswer(index);
+        this.gameState.currentQuestion = questionIndex;
+        const question = this.gameState.questions[questionIndex];
+        
+        // Reset answered status for new question
+        this.players.forEach(player => {
+            player.hasAnswered = false;
         });
         
-        optionsContainer.appendChild(optionElement);
-    });
-    
-    // Start timer
-    this.startTimer();
-    
-    // Update scoreboard
-    this.updateScoreboard();
-    
-    categoryManager.showScreen('multiplayer-quiz-screen');
-},
+        // Update UI
+        document.getElementById('mp-current-subject').textContent = 
+            `${this.currentRoom.settings.category} - ${this.currentRoom.settings.subject}`;
+        
+        document.getElementById('mp-question-count-display').textContent = 
+            `Question ${questionIndex + 1} of ${this.gameState.questions.length}`;
+        
+        document.getElementById('mp-question-text').textContent = question.question;
+        
+        // Update progress bar
+        const progress = ((questionIndex) / this.gameState.questions.length) * 100;
+        document.getElementById('mp-progress-bar').style.width = `${progress}%`;
+        
+        // Render options
+        const optionsContainer = document.getElementById('mp-options-container');
+        optionsContainer.innerHTML = '';
+        
+        question.options.forEach((option, index) => {
+            const optionElement = document.createElement('div');
+            optionElement.className = 'option';
+            optionElement.innerHTML = `
+                <div class="option-content">
+                    <div class="option-letter">${String.fromCharCode(65 + index)}</div>
+                    <div class="option-text">${option}</div>
+                </div>
+            `;
+            
+            optionElement.addEventListener('click', () => {
+                this.selectAnswer(index);
+            });
+            
+            optionsContainer.appendChild(optionElement);
+        });
+        
+        // Start timer
+        this.startTimer();
+        
+        // Update scoreboard
+        this.updateScoreboard();
+        
+        categoryManager.showScreen('multiplayer-quiz-screen');
+    },
 
-selectAnswer(optionIndex) {
-    if (!this.gameState) return;
-    
-    const questionIndex = this.gameState.currentQuestion;
-    const question = this.gameState.questions[questionIndex];
-    const options = document.querySelectorAll('#mp-options-container .option');
-    
-    // Disable all options after selection
-    options.forEach(opt => {
-        opt.style.pointerEvents = 'none';
-        opt.classList.remove('selected', 'correct', 'incorrect');
-    });
-    
-    options[optionIndex].classList.add('selected');
-    
-    const isCorrect = optionIndex === question.correctAnswer;
-    
-    // Show correct/incorrect feedback
-    if (isCorrect) {
-        soundSystem.play('correct');
-        options[optionIndex].classList.add('correct');
-    } else {
-        soundSystem.play('wrong');
-        options[optionIndex].classList.add('incorrect');
-        if (question.correctAnswer >= 0 && question.correctAnswer < options.length) {
-            options[question.correctAnswer].classList.add('correct');
+    selectAnswer(optionIndex) {
+        if (!this.gameState) return;
+        
+        const questionIndex = this.gameState.currentQuestion;
+        const question = this.gameState.questions[questionIndex];
+        const options = document.querySelectorAll('#mp-options-container .option');
+        
+        // Disable all options after selection
+        options.forEach(opt => {
+            opt.style.pointerEvents = 'none';
+            opt.classList.remove('selected', 'correct', 'incorrect');
+        });
+        
+        options[optionIndex].classList.add('selected');
+        
+        const isCorrect = optionIndex === question.correctAnswer;
+        
+        // Show correct/incorrect feedback
+        if (isCorrect) {
+            soundSystem.play('correct');
+            options[optionIndex].classList.add('correct');
+        } else {
+            soundSystem.play('wrong');
+            options[optionIndex].classList.add('incorrect');
+            if (question.correctAnswer >= 0 && question.correctAnswer < options.length) {
+                options[question.correctAnswer].classList.add('correct');
+            }
         }
-    }
-    
-    // Submit answer
-    this.submitAnswer(questionIndex, optionIndex);
-    
-    // Show explanation
-    const feedbackElement = document.getElementById('mp-question-feedback');
-    const feedbackText = document.getElementById('mp-feedback-text');
-    
-    if (feedbackElement && feedbackText) {
-        feedbackElement.className = `question-feedback ${isCorrect ? 'correct' : 'incorrect'} show`;
-        feedbackText.textContent = question.explanation || 
-            (isCorrect ? 'Correct! Well done.' : `Incorrect. The right answer is ${String.fromCharCode(65 + question.correctAnswer)}.`);
-    }
-    
-    // Move to next question after delay
-    setTimeout(() => {
-        this.nextQuestion();
-    }, 3000);
-},
+        
+        // Submit answer
+        this.submitAnswer(questionIndex, optionIndex);
+        
+        // Show explanation
+        const feedbackElement = document.getElementById('mp-question-feedback');
+        const feedbackText = document.getElementById('mp-feedback-text');
+        
+        if (feedbackElement && feedbackText) {
+            feedbackElement.className = `question-feedback ${isCorrect ? 'correct' : 'incorrect'} show`;
+            feedbackText.textContent = question.explanation || 
+                (isCorrect ? 'Correct! Well done.' : `Incorrect. The right answer is ${String.fromCharCode(65 + question.correctAnswer)}.`);
+        }
+        
+        // Move to next question after delay
+        setTimeout(() => {
+            this.nextQuestion();
+        }, 3000);
+    },
 
-nextQuestion() {
-    if (this.gameState && this.gameState.currentQuestion < this.gameState.questions.length - 1) {
-        this.loadQuestion(this.gameState.currentQuestion + 1);
-    } else {
-        this.showResults(this.gameState.players);
-    }
-},
+    nextQuestion() {
+        if (this.gameState && this.gameState.currentQuestion < this.gameState.questions.length - 1) {
+            this.loadQuestion(this.gameState.currentQuestion + 1);
+        } else {
+            this.showResults(this.gameState.players);
+        }
+    },
 
-startTimer() {
-    clearInterval(this.timer);
-    this.timeLeft = this.gameState.timePerQuestion;
-    this.updateTimerDisplay();
-    
-    this.timer = setInterval(() => {
-        this.timeLeft--;
+    startTimer() {
+        clearInterval(this.timer);
+        this.timeLeft = this.gameState.timePerQuestion;
         this.updateTimerDisplay();
         
-        if (this.timeLeft <= 0) {
-            clearInterval(this.timer);
-            this.nextQuestion();
+        this.timer = setInterval(() => {
+            this.timeLeft--;
+            this.updateTimerDisplay();
+            
+            if (this.timeLeft <= 0) {
+                clearInterval(this.timer);
+                this.nextQuestion();
+            }
+        }, 1000);
+    },
+
+    updateTimerDisplay() {
+        const timerElement = document.getElementById('mp-time-left');
+        if (timerElement) {
+            timerElement.textContent = this.timeLeft;
+            timerElement.className = `timer ${this.timeLeft <= 10 ? 'warning' : ''} ${this.timeLeft <= 5 ? 'danger' : ''}`;
         }
-    }, 1000);
-},
+    },
 
-updateTimerDisplay() {
-    const timerElement = document.getElementById('mp-time-left');
-    if (timerElement) {
-        timerElement.textContent = this.timeLeft;
-        timerElement.className = `timer ${this.timeLeft <= 10 ? 'warning' : ''} ${this.timeLeft <= 5 ? 'danger' : ''}`;
-    }
-},
-
-updateScoreboard() {
-    const scoreboard = document.getElementById('multiplayer-scoreboard');
-    if (!scoreboard || !this.players.length) return;
-    
-    // Sort players by score (descending)
-    const sortedPlayers = [...this.players].sort((a, b) => b.score - a.score);
-    
-    scoreboard.innerHTML = sortedPlayers.map((player, index) => {
-        const isCurrentPlayer = player.id === this.getPlayerId();
-        const playerClass = isCurrentPlayer ? 'current-player' : '';
-        const rank = index + 1;
+    updateScoreboard() {
+        const scoreboard = document.getElementById('multiplayer-scoreboard');
+        if (!scoreboard || !this.players.length) return;
         
-        return `
-            <div class="scoreboard-item ${playerClass}">
-                <div class="scoreboard-rank">${rank}</div>
-                <div class="multiplayer-avatar">${player.avatar}</div>
-                <div class="scoreboard-name">${player.name}</div>
-                <div class="scoreboard-score">${player.score} pts</div>
-                ${player.hasAnswered ? '<div class="scoreboard-status answered"><i class="fas fa-check"></i></div>' : '<div class="scoreboard-status waiting"><i class="fas fa-clock"></i></div>'}
-            </div>
-        `;
-    }).join('');
-},
-
-showResults(finalScores) {
-    clearInterval(this.timer);
-    
-    if (!finalScores) {
-        finalScores = this.players;
-    }
-    
-    // Sort players by score
-    const sortedPlayers = [...finalScores].sort((a, b) => b.score - a.score);
-    const winner = sortedPlayers[0];
-    const isWinner = winner.id === this.getPlayerId();
-    
-    // Update results display
-    document.getElementById('mp-final-score').textContent = `${winner.name} wins!`;
-    document.getElementById('mp-winner-avatar').textContent = winner.avatar;
-    document.getElementById('mp-winner-name').textContent = winner.name;
-    document.getElementById('mp-winner-score').textContent = `${winner.score} points`;
-    
-    // Show confetti for winner
-    if (isWinner) {
-        document.getElementById('mp-confetti').style.display = 'block';
-        soundSystem.play('victory');
+        // Sort players by score (descending)
+        const sortedPlayers = [...this.players].sort((a, b) => b.score - a.score);
         
-        setTimeout(() => {
-            document.getElementById('mp-confetti').style.display = 'none';
-        }, 5000);
-    }
-    
-    // Update leaderboard
-    const leaderboard = document.getElementById('mp-leaderboard');
-    leaderboard.innerHTML = sortedPlayers.map((player, index) => {
-        const isCurrentPlayer = player.id === this.getPlayerId();
-        const playerClass = isCurrentPlayer ? 'current-player' : '';
-        const rank = index + 1;
-        const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
+        scoreboard.innerHTML = sortedPlayers.map((player, index) => {
+            const isCurrentPlayer = player.id === this.getPlayerId();
+            const playerClass = isCurrentPlayer ? 'current-player' : '';
+            const rank = index + 1;
+            
+            return `
+                <div class="scoreboard-item ${playerClass}">
+                    <div class="scoreboard-rank">${rank}</div>
+                    <div class="multiplayer-avatar">${player.avatar}</div>
+                    <div class="scoreboard-name">${player.name}</div>
+                    <div class="scoreboard-score">${player.score} pts</div>
+                    ${player.hasAnswered ? '<div class="scoreboard-status answered"><i class="fas fa-check"></i></div>' : '<div class="scoreboard-status waiting"><i class="fas fa-clock"></i></div>'}
+                </div>
+            `;
+        }).join('');
+    },
+
+    showResults(finalScores) {
+        clearInterval(this.timer);
         
-        return `
-            <div class="leaderboard-item ${playerClass}">
-                <div class="leaderboard-rank">${medal}</div>
-                <div class="multiplayer-avatar">${player.avatar}</div>
-                <div class="leaderboard-name">${player.name}</div>
-                <div class="leaderboard-score">${player.score} pts</div>
-            </div>
-        `;
-    }).join('');
-    
-    categoryManager.showScreen('multiplayer-results-screen');
-},
+        if (!finalScores) {
+            finalScores = this.players;
+        }
+        
+        // Sort players by score
+        const sortedPlayers = [...finalScores].sort((a, b) => b.score - a.score);
+        const winner = sortedPlayers[0];
+        const isWinner = winner.id === this.getPlayerId();
+        
+        // Update results display
+        document.getElementById('mp-final-score').textContent = `${winner.name} wins!`;
+        document.getElementById('mp-winner-avatar').textContent = winner.avatar;
+        document.getElementById('mp-winner-name').textContent = winner.name;
+        document.getElementById('mp-winner-score').textContent = `${winner.score} points`;
+        
+        // Show confetti for winner
+        if (isWinner) {
+            document.getElementById('confetti').style.display = 'block';
+            soundSystem.play('victory');
+            
+            setTimeout(() => {
+                document.getElementById('confetti').style.display = 'none';
+            }, 5000);
+        }
+        
+        // Update leaderboard
+        const leaderboard = document.getElementById('mp-leaderboard');
+        leaderboard.innerHTML = sortedPlayers.map((player, index) => {
+            const isCurrentPlayer = player.id === this.getPlayerId();
+            const playerClass = isCurrentPlayer ? 'current-player' : '';
+            const rank = index + 1;
+            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
+            
+            return `
+                <div class="leaderboard-item ${playerClass}">
+                    <div class="leaderboard-rank">${medal}</div>
+                    <div class="multiplayer-avatar">${player.avatar}</div>
+                    <div class="leaderboard-name">${player.name}</div>
+                    <div class="leaderboard-score">${player.score} pts</div>
+                </div>
+            `;
+        }).join('');
+        
+        categoryManager.showScreen('multiplayer-results-screen');
+    },
 
-generateRoomCode() {
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let result = '';
-    for (let i = 0; i < 4; i++) {
-        result += characters.charAt(Math.floor(Math.random() * characters.length));
+    generateRoomCode() {
+        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let result = '';
+        for (let i = 0; i < 4; i++) {
+            result += characters.charAt(Math.floor(Math.random() * characters.length));
+        }
+        return result;
+    },
+
+    getPlayerId() {
+        // Generate a simple player ID for local use
+        return 'player_' + Math.random().toString(36).substr(2, 9);
     }
-    return result;
-},
-
-getPlayerId() {
-    // Generate a simple player ID for local use
-    return 'player_' + Math.random().toString(36).substr(2, 9);
-}
 };
 
 // UI Event Handlers
 function setupEventListeners() {
-console.log('🔧 Setting up event listeners...');
+    console.log('🔧 Setting up event listeners...');
 
-// Sound toggle
-const soundToggle = document.getElementById('toggle-sound');
-if (soundToggle) {
-    soundToggle.addEventListener('click', () => {
-        soundSystem.toggle();
-    });
-}
+    // Sound toggle
+    const soundToggle = document.getElementById('toggle-sound');
+    if (soundToggle) {
+        soundToggle.addEventListener('click', () => {
+            soundSystem.toggle();
+        });
+    }
 
-// Single player start
-const startSinglePlayer = document.getElementById('start-single-player');
-if (startSinglePlayer) {
-    startSinglePlayer.addEventListener('click', () => {
-        const settings = categoryManager.getCurrentSettings();
-        const playerName = document.getElementById('player-name').value || 'Player';
-        
-        if (!settings.category || !settings.subject) {
-            categoryManager.showError('Please select a category and subject');
-            return;
-        }
-        
-        singlePlayerSystem.startGame(
-            settings.category,
-            settings.subject,
-            playerName,
-            avatarSystem.selectedAvatar,
-            settings.difficulty,
-            settings.questionCount,
-            settings.questionSource
-        );
-    });
-}
-
-// Multiplayer setup
-const setupMultiplayer = document.getElementById('setup-multiplayer');
-if (setupMultiplayer) {
-    setupMultiplayer.addEventListener('click', () => {
-        categoryManager.showScreen('multiplayer-setup');
-    });
-}
-
-// Create room
-const createRoomBtn = document.getElementById('create-room-btn');
-if (createRoomBtn) {
-    createRoomBtn.addEventListener('click', () => {
-        const settings = categoryManager.getCurrentSettings();
-        multiplayerSystem.createRoom(settings);
-    });
-}
-
-// Join room
-const joinRoomBtn = document.getElementById('join-room-btn');
-if (joinRoomBtn) {
-    joinRoomBtn.addEventListener('click', () => {
-        const roomCode = document.getElementById('room-code-input').value;
-        multiplayerSystem.joinRoom(roomCode);
-    });
-}
-
-// Start multiplayer game
-const startGameBtn = document.getElementById('start-game-btn');
-if (startGameBtn) {
-    startGameBtn.addEventListener('click', () => {
-        multiplayerSystem.startGame();
-    });
-}
-
-// Leave room
-const leaveRoomBtn = document.getElementById('leave-room-btn');
-if (leaveRoomBtn) {
-    leaveRoomBtn.addEventListener('click', () => {
-        multiplayerSystem.leaveRoom();
-    });
-}
-
-// Back to multiplayer setup
-const backToMultiplayerSetup = document.getElementById('back-to-multiplayer-setup');
-if (backToMultiplayerSetup) {
-    backToMultiplayerSetup.addEventListener('click', () => {
-        multiplayerSystem.leaveRoom();
-    });
-}
-
-// Quiz navigation
-const prevQuestion = document.getElementById('prev-question');
-if (prevQuestion) {
-    prevQuestion.addEventListener('click', () => {
-        singlePlayerSystem.prevQuestion();
-    });
-}
-
-const nextQuestion = document.getElementById('next-question');
-if (nextQuestion) {
-    nextQuestion.addEventListener('click', () => {
-        singlePlayerSystem.nextQuestion();
-    });
-}
-
-const submitQuiz = document.getElementById('submit-quiz');
-if (submitQuiz) {
-    submitQuiz.addEventListener('click', () => {
-        singlePlayerSystem.submitQuiz();
-    });
-}
-
-// Play again buttons
-const playAgainSingle = document.getElementById('play-again-single');
-if (playAgainSingle) {
-    playAgainSingle.addEventListener('click', () => {
-        categoryManager.showCategorySelection();
-    });
-}
-
-const playAgainMultiplayer = document.getElementById('play-again-multiplayer');
-if (playAgainMultiplayer) {
-    playAgainMultiplayer.addEventListener('click', () => {
-        multiplayerSystem.leaveRoom();
-        categoryManager.showScreen('multiplayer-setup');
-    });
-}
-
-const backToMainFromResults = document.getElementById('back-to-main-from-results');
-if (backToMainFromResults) {
-    backToMainFromResults.addEventListener('click', () => {
-        categoryManager.showCategorySelection();
-    });
-}
-
-// Back to main menu from various screens
-const backButtons = document.querySelectorAll('.back-to-main');
-backButtons.forEach(button => {
-    button.addEventListener('click', () => {
-        categoryManager.showCategorySelection();
-    });
-});
-
-// Room code input uppercase
-const roomCodeInput = document.getElementById('room-code-input');
-if (roomCodeInput) {
-    roomCodeInput.addEventListener('input', (e) => {
-        e.target.value = e.target.value.toUpperCase();
-    });
-}
-
-// Enter key for room code
-if (roomCodeInput) {
-    roomCodeInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            document.getElementById('join-room-btn').click();
-        }
-    });
-}
-
-// Player name input enter key
-const playerNameInput = document.getElementById('player-name');
-if (playerNameInput) {
-    playerNameInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            document.getElementById('start-single-player').click();
-        }
-    });
-}
-
-const mpPlayerNameInput = document.getElementById('mp-player-name');
-if (mpPlayerNameInput) {
-    mpPlayerNameInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            // Check which multiplayer screen we're on
-            if (currentState.screen === 'multiplayer-setup') {
-                document.getElementById('create-room-btn').click();
+    // Start quiz button (single player)
+    const startQuizBtn = document.getElementById('start-quiz-btn');
+    if (startQuizBtn) {
+        startQuizBtn.addEventListener('click', () => {
+            const settings = categoryManager.getCurrentSettings();
+            const playerName = document.getElementById('player-name').value || 'Player';
+            
+            if (!settings.category || !settings.subject) {
+                categoryManager.showError('Please select a category and subject');
+                return;
             }
-        }
+
+            if (settings.gameMode === 'single') {
+                singlePlayerSystem.startGame(
+                    settings.category,
+                    settings.subject,
+                    playerName,
+                    avatarSystem.selectedAvatar,
+                    settings.difficulty,
+                    settings.questionCount,
+                    settings.questionSource
+                );
+            } else {
+                // Multiplayer mode - go to multiplayer setup
+                categoryManager.showScreen('multiplayer-setup');
+            }
+        });
+    }
+
+    // Multiplayer setup
+    const setupMultiplayer = document.getElementById('setup-multiplayer');
+    if (setupMultiplayer) {
+        setupMultiplayer.addEventListener('click', () => {
+            categoryManager.showScreen('multiplayer-setup');
+        });
+    }
+
+    // Create room
+    const createRoomBtn = document.getElementById('create-room-btn');
+    if (createRoomBtn) {
+        createRoomBtn.addEventListener('click', () => {
+            const settings = categoryManager.getCurrentSettings();
+            multiplayerSystem.createRoom(settings);
+        });
+    }
+
+    // Join room
+    const joinRoomBtn = document.getElementById('join-room-btn');
+    if (joinRoomBtn) {
+        joinRoomBtn.addEventListener('click', () => {
+            const roomCode = document.getElementById('room-code-input').value;
+            multiplayerSystem.joinRoom(roomCode);
+        });
+    }
+
+    // Start multiplayer game
+    const startGameBtn = document.getElementById('start-game-btn');
+    if (startGameBtn) {
+        startGameBtn.addEventListener('click', () => {
+            multiplayerSystem.startGame();
+        });
+    }
+
+    // Leave room
+    const leaveRoomBtn = document.getElementById('leave-room-btn');
+    if (leaveRoomBtn) {
+        leaveRoomBtn.addEventListener('click', () => {
+            multiplayerSystem.leaveRoom();
+        });
+    }
+
+    // Back to multiplayer setup
+    const backToMultiplayerSetup = document.getElementById('back-to-multiplayer-setup');
+    if (backToMultiplayerSetup) {
+        backToMultiplayerSetup.addEventListener('click', () => {
+            multiplayerSystem.leaveRoom();
+        });
+    }
+
+    // Quiz navigation
+    const prevQuestion = document.getElementById('prev-question');
+    if (prevQuestion) {
+        prevQuestion.addEventListener('click', () => {
+            singlePlayerSystem.prevQuestion();
+        });
+    }
+
+    const nextQuestion = document.getElementById('next-question');
+    if (nextQuestion) {
+        nextQuestion.addEventListener('click', () => {
+            singlePlayerSystem.nextQuestion();
+        });
+    }
+
+    const submitQuiz = document.getElementById('submit-quiz');
+    if (submitQuiz) {
+        submitQuiz.addEventListener('click', () => {
+            singlePlayerSystem.submitQuiz();
+        });
+    }
+
+    // Play again buttons
+    const playAgainSingle = document.getElementById('play-again-btn');
+    if (playAgainSingle) {
+        playAgainSingle.addEventListener('click', () => {
+            categoryManager.showCategorySelection();
+        });
+    }
+
+    const playAgainMultiplayer = document.getElementById('play-again-multiplayer');
+    if (playAgainMultiplayer) {
+        playAgainMultiplayer.addEventListener('click', () => {
+            multiplayerSystem.leaveRoom();
+            categoryManager.showScreen('multiplayer-setup');
+        });
+    }
+
+    const backToMainFromResults = document.getElementById('back-to-menu');
+    if (backToMainFromResults) {
+        backToMainFromResults.addEventListener('click', () => {
+            categoryManager.showCategorySelection();
+        });
+    }
+
+    // Back to main menu from various screens
+    const backButtons = document.querySelectorAll('.back-to-main');
+    backButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            categoryManager.showCategorySelection();
+        });
     });
-}
+
+    // Room code input uppercase
+    const roomCodeInput = document.getElementById('room-code-input');
+    if (roomCodeInput) {
+        roomCodeInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.toUpperCase();
+        });
+    }
+
+    // Enter key for room code
+    if (roomCodeInput) {
+        roomCodeInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('join-room-btn').click();
+            }
+        });
+    }
+
+    // Player name input enter key
+    const playerNameInput = document.getElementById('player-name');
+    if (playerNameInput) {
+        playerNameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('start-quiz-btn').click();
+            }
+        });
+    }
+
+    const mpPlayerNameInput = document.getElementById('mp-player-name');
+    if (mpPlayerNameInput) {
+        mpPlayerNameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                // Check which multiplayer screen we're on
+                if (currentState.screen === 'multiplayer-setup') {
+                    document.getElementById('create-room-btn').click();
+                }
+            }
+        });
+    }
 }
 
 // Initialize the application
 async function initApp() {
-console.log('🚀 Initializing QuizMaster App...');
+    console.log('🚀 Initializing QuizMaster App...');
 
-try {
-    // Initialize systems
-    await connectionManager.init();
-    avatarSystem.init();
-    categoryManager.init();
-    singlePlayerSystem.init();
-    multiplayerSystem.init();
-    
-    // Setup event listeners
-    setupEventListeners();
-    
-    // Initialize sound system UI
-    soundSystem.toggle(); // Set initial state
-    
-    console.log('✅ QuizMaster App initialized successfully!');
-    
-    // Show connection status
-    connectionManager.setConnectionStatus('connected');
-    
-} catch (error) {
-    console.error('❌ Failed to initialize app:', error);
-    categoryManager.showError('Failed to initialize application. Please refresh the page.');
-}
+    try {
+        // Initialize systems
+        await connectionManager.init();
+        avatarSystem.init();
+        categoryManager.init();
+        singlePlayerSystem.init();
+        multiplayerSystem.init();
+        
+        // Setup event listeners
+        setupEventListeners();
+        
+        // Initialize sound system UI
+        soundSystem.toggle(); // Set initial state
+        
+        console.log('✅ QuizMaster App initialized successfully!');
+        
+        // Show connection status
+        connectionManager.setConnectionStatus('connected');
+        
+    } catch (error) {
+        console.error('❌ Failed to initialize app:', error);
+        categoryManager.showError('Failed to initialize application. Please refresh the page.');
+    }
 }
 
 // Start the app when DOM is loaded
 if (document.readyState === 'loading') {
-document.addEventListener('DOMContentLoaded', initApp);
+    document.addEventListener('DOMContentLoaded', initApp);
 } else {
-initApp();
+    initApp();
 }
 
 // Export for global access (if needed)
 window.QuizMaster = {
-categoryManager,
-singlePlayerSystem,
-multiplayerSystem,
-soundSystem,
-avatarSystem,
-connectionManager
+    categoryManager,
+    singlePlayerSystem,
+    multiplayerSystem,
+    soundSystem,
+    avatarSystem,
+    connectionManager
 };
-
-   
-   
-  </script>
+    </script>
 </body>
 </html>
