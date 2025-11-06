@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
     <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
-    <style>
+    <>
         :root {
             --primary: #4361ee;
             --secondary: #3a0ca3;
@@ -495,6 +495,204 @@
 .switch-to-register:hover, .switch-to-login:hover {
     text-decoration: underline;
 }
+
+
+/* Multiplayer specific styles */
+.multiplayer-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8f9fa;
+    border: 2px solid #dee2e6;
+    font-size: 1.2rem;
+}
+
+.player-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.player-item:last-child {
+    border-bottom: none;
+}
+
+.scoreboard-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #eee;
+    transition: all 0.3s ease;
+}
+
+.scoreboard-item.current-player {
+    background: #e3f2fd;
+    border-left: 4px solid #2196f3;
+}
+
+.scoreboard-rank {
+    width: 30px;
+    font-weight: bold;
+    text-align: center;
+}
+
+.scoreboard-name {
+    flex: 1;
+    margin: 0 10px;
+}
+
+.scoreboard-score {
+    font-weight: bold;
+    min-width: 80px;
+    text-align: right;
+}
+
+.scoreboard-status {
+    margin-left: 10px;
+    width: 20px;
+    text-align: center;
+}
+
+.scoreboard-status.answered {
+    color: #4caf50;
+}
+
+.scoreboard-status.waiting {
+    color: #ff9800;
+}
+
+.leaderboard-item {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid #eee;
+    background: white;
+    transition: all 0.3s ease;
+}
+
+.leaderboard-item.current-player {
+    background: #e8f5e8;
+    border-left: 4px solid #4caf50;
+}
+
+.leaderboard-rank {
+    width: 40px;
+    font-weight: bold;
+    font-size: 1.1rem;
+    text-align: center;
+}
+
+.leaderboard-name {
+    flex: 1;
+    margin: 0 15px;
+    font-weight: 500;
+}
+
+.leaderboard-score {
+    font-weight: bold;
+    font-size: 1.1rem;
+    color: #2e7d32;
+    min-width: 100px;
+    text-align: right;
+}
+
+/* Chat styles */
+.chat-container {
+    max-height: 300px;
+}
+
+.chat-messages {
+    max-height: 200px;
+    overflow-y: auto;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.chat-message {
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: white;
+    border-left: 4px solid #007bff;
+}
+
+.chat-message.system-message {
+    background: #fff3cd;
+    border-left-color: #ffc107;
+    font-style: italic;
+}
+
+.chat-message.own-message {
+    background: #d1ecf1;
+    border-left-color: #17a2b8;
+}
+
+.message-header {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin-bottom: 4px;
+}
+
+.message-content {
+    font-size: 0.9rem;
+}
+
+.chat-input-container {
+    background: white;
+    border-top: 1px solid #dee2e6;
+}
+
+/* Loading states */
+.btn.loading {
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+/* Connection status */
+.status.connected {
+    color: #28a745;
+}
+
+.status.disconnected {
+    color: #dc3545;
+}
+
+.status.connecting {
+    color: #ffc107;
+}
+
+.online-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+
+.online-indicator.online {
+    background: #28a745;
+}
+
+.online-indicator.offline {
+    background: #dc3545;
+}
+
+.online-indicator.connecting {
+    background: #ffc107;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
     </style>
 </head>
 <body>
