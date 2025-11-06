@@ -1387,6 +1387,7 @@ const avatarSystem = {
 };
 
 // Enhanced Connection Manager with Better Error Handling
+// Enhanced Connection Manager with Socket.io Support
 const connectionManager = {
     socket: null,
     isConnected: false,
@@ -1398,13 +1399,22 @@ const connectionManager = {
     
     async init() {
         console.log('🔌 Initializing connection manager...');
+        
+        // Check if Socket.io is available
+        if (typeof io === 'undefined') {
+            console.log('🚫 Socket.io not available - using fallback mode');
+            this.useFallback = true;
+            this.enableFallbackMode();
+            return;
+        }
+        
         await this.connect();
     },
     
     async connect() {
         // Don't attempt reconnection if we're using fallback
         if (this.useFallback) {
-            console.log('🔄 Using fallback mode - skipping WebSocket connection');
+            console.log('🔄 Using fallback mode - skipping Socket.io connection');
             this.setConnectionStatus('disconnected');
             return;
         }
@@ -1412,126 +1422,100 @@ const connectionManager = {
         try {
             this.setConnectionStatus('connecting');
             
-            // Try different WebSocket URLs
-            const wsUrls = [
-                SOCKET_URL.replace('https', 'wss').replace('http', 'ws'),
-                SOCKET_URL.replace('https', 'wss').replace('http', 'ws') + '/ws',
-                SOCKET_URL.replace('https', 'wss').replace('http', 'ws') + '/socket.io',
-                'wss://quiz-app-backend-3g8p.onrender.com/ws'
-            ];
+            console.log(`🔗 Attempting Socket.io connection to: ${BACKEND_URL}`);
             
-            let connected = false;
+            // Initialize Socket.io with proper configuration
+            this.socket = io(BACKEND_URL, {
+                transports: ['websocket', 'polling'],
+                timeout: 10000,
+                reconnectionAttempts: 3,
+                reconnectionDelay: 2000
+            });
             
-            for (const wsUrl of wsUrls) {
-                try {
-                    console.log(`🔗 Attempting WebSocket connection to: ${wsUrl}`);
-                    this.socket = new WebSocket(wsUrl);
-                    
-                    // Set timeout for connection attempt
-                    const connectionTimeout = setTimeout(() => {
-                        if (this.socket.readyState !== WebSocket.OPEN) {
-                            console.log(`⏰ Timeout connecting to: ${wsUrl}`);
-                            this.socket.close();
-                        }
-                    }, 5000);
-                    
-                    this.socket.onopen = () => {
-                        clearTimeout(connectionTimeout);
-                        console.log('✅ WebSocket connected successfully to:', wsUrl);
-                        this.isConnected = true;
-                        this.reconnectAttempts = 0;
-                        this.setConnectionStatus('connected');
-                        connected = true;
-                        
-                        // Rejoin room if we were in one
-                        if (multiplayerSystem.currentRoom) {
-                            this.rejoinRoom();
-                        }
-                    };
-                    
-                    this.socket.onmessage = (event) => {
-                        try {
-                            const data = JSON.parse(event.data);
-                            console.log('📥 Received message:', data);
-                            this.handleMessage(data);
-                        } catch (error) {
-                            console.error('Error parsing message:', error);
-                        }
-                    };
-                    
-                    this.socket.onclose = (event) => {
-                        clearTimeout(connectionTimeout);
-                        if (!connected) {
-                            console.log(`❌ Failed to connect to: ${wsUrl}`, event.code, event.reason);
-                            return; // Try next URL
-                        }
-                        
-                        console.log('❌ WebSocket disconnected:', event.code, event.reason);
-                        this.isConnected = false;
-                        this.setConnectionStatus('disconnected');
-                        
-                        // Don't attempt reconnection for certain error codes
-                        if (event.code === 1006 || event.code === 1011) {
-                            console.log('🚫 Critical error - switching to fallback mode');
-                            this.useFallback = true;
-                            this.enableFallbackMode();
-                            return;
-                        }
-                        
-                        // Attempt reconnection
-                        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-                            setTimeout(() => {
-                                this.reconnectAttempts++;
-                                console.log(`🔄 Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`);
-                                this.connect();
-                            }, this.reconnectDelay);
-                        } else {
-                            console.log('🚫 Max reconnection attempts reached - switching to fallback mode');
-                            this.useFallback = true;
-                            this.enableFallbackMode();
-                        }
-                    };
-                    
-                    this.socket.onerror = (error) => {
-                        clearTimeout(connectionTimeout);
-                        console.error('WebSocket error:', error);
-                        this.setConnectionStatus('disconnected');
-                    };
-                    
-                    // Wait a bit to see if this connection works
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    if (connected) break;
-                    
-                } catch (error) {
-                    console.error(`Error connecting to ${wsUrl}:`, error);
-                    continue;
+            this.socket.on('connect', () => {
+                console.log('✅ Socket.io connected successfully');
+                this.isConnected = true;
+                this.reconnectAttempts = 0;
+                this.setConnectionStatus('connected');
+                
+                // Rejoin room if we were in one
+                if (multiplayerSystem.currentRoom) {
+                    this.rejoinRoom();
                 }
-            }
+            });
             
-            if (!connected) {
-                console.log('🚫 All WebSocket connection attempts failed - using fallback mode');
-                this.useFallback = true;
-                this.enableFallbackMode();
-            }
+            this.socket.on('disconnect', (reason) => {
+                console.log('❌ Socket.io disconnected:', reason);
+                this.isConnected = false;
+                this.setConnectionStatus('disconnected');
+                
+                if (reason === 'io server disconnect') {
+                    // Server intentionally disconnected, don't reconnect
+                    console.log('🚫 Server disconnected us - switching to fallback');
+                    this.useFallback = true;
+                    this.enableFallbackMode();
+                } else {
+                    // Attempt reconnection
+                    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                        setTimeout(() => {
+                            this.reconnectAttempts++;
+                            console.log(`🔄 Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`);
+                        }, this.reconnectDelay);
+                    } else {
+                        console.log('🚫 Max reconnection attempts reached - switching to fallback mode');
+                        this.useFallback = true;
+                        this.enableFallbackMode();
+                    }
+                }
+            });
+            
+            this.socket.on('connect_error', (error) => {
+                console.error('Socket.io connection error:', error);
+                this.setConnectionStatus('disconnected');
+                
+                // Switch to fallback after multiple failures
+                if (this.reconnectAttempts >= 2) {
+                    console.log('🚫 Multiple connection failures - switching to fallback');
+                    this.useFallback = true;
+                    this.enableFallbackMode();
+                }
+            });
+            
+            // Set up event listeners for Socket.io events
+            this.setupSocketListeners();
             
         } catch (error) {
-            console.error('Failed to connect:', error);
+            console.error('Failed to connect with Socket.io:', error);
             this.setConnectionStatus('disconnected');
             this.useFallback = true;
             this.enableFallbackMode();
         }
     },
     
-    enableFallbackMode() {
-        console.log('🔄 Enabling fallback mode - using simulated multiplayer');
-        this.setConnectionStatus('disconnected');
-        this.isConnected = false;
+    setupSocketListeners() {
+        // Map Socket.io events to our internal handlers
+        const eventMap = {
+            'gameCreated': 'gameCreated',
+            'gameJoined': 'gameJoined', 
+            'playerJoined': 'playerJoined',
+            'playerLeft': 'playerLeft',
+            'gameStarting': 'gameStarting',
+            'gameStarted': 'gameStarted',
+            'playerAnswered': 'playerAnswered',
+            'nextQuestion': 'question',
+            'gameFinished': 'gameEnded',
+            'gameError': 'gameError',
+            'playerReadyChanged': 'playerReadyChanged',
+            'newHost': 'newHost',
+            'chatMessage': 'chatMessage'
+        };
         
-        // Show notification to user
-        categoryManager.showError('Real-time multiplayer unavailable. Using local multiplayer mode.');
-        
-        // Initialize fallback multiplayer system
-        multiplayerSystem.enableFallbackMode();
+        Object.entries(eventMap).forEach(([socketEvent, internalEvent]) => {
+            this.socket.on(socketEvent, (data) => {
+                console.log(`📥 Received ${socketEvent}:`, data);
+                this.handleMessage({ event: internalEvent, payload: data });
+            });
+        });
     },
     
     handleMessage(data) {
@@ -1566,22 +1550,31 @@ const connectionManager = {
         }
         
         try {
-            const message = {
-                event: event,
-                payload: data,
-                timestamp: Date.now()
+            // Map our internal events to Socket.io events
+            const eventMap = {
+                'createRoom': 'createGame',
+                'joinRoom': 'joinGame',
+                'startGame': 'startGame',
+                'submitAnswer': 'submitAnswer',
+                'playerReady': 'playerReady',
+                'chatMessage': 'chatMessage',
+                'leaveRoom': 'disconnect',
+                'rejoinRoom': 'joinGame'
             };
             
-            this.socket.send(JSON.stringify(message));
-            console.log(`📤 Emitted ${event}:`, data);
+            const socketEvent = eventMap[event] || event;
+            
+            this.socket.emit(socketEvent, data);
+            console.log(`📤 Emitted ${socketEvent}:`, data);
             return { success: true };
+            
         } catch (error) {
             console.error(`Error emitting ${event}:`, error);
             return { success: false, error: error.message };
         }
     },
     
-    // Simulate server responses for fallback mode
+    // Simulate server responses for fallback mode (keep existing implementation)
     simulateServerResponse(event, data) {
         return new Promise((resolve) => {
             setTimeout(() => {
@@ -1741,33 +1734,80 @@ const connectionManager = {
         }
     },
     
+    enableFallbackMode() {
+        console.log('🔄 Enabling fallback mode - using simulated multiplayer');
+        this.setConnectionStatus('disconnected');
+        this.isConnected = false;
+        
+        // Show notification to user
+        categoryManager.showError('Real-time multiplayer unavailable. Using local multiplayer mode.');
+        
+        // Initialize fallback multiplayer system
+        multiplayerSystem.enableFallbackMode();
+    },
+    
     // Specific event handlers
+    handle_gameCreated(data) {
+        console.log('✅ Game created on server:', data.gameCode);
+        // The server will handle the room creation, we just need to update our state
+    },
+    
+    handle_gameJoined(data) {
+        console.log('✅ Joined game on server:', data.gameCode);
+        multiplayerSystem.handleRoomUpdated({
+            roomCode: data.gameCode,
+            players: Array.from(data.players?.values() || []),
+            settings: data.settings,
+            hostPlayerId: data.hostId
+        });
+    },
+    
     handle_playerJoined(data) {
         multiplayerSystem.handlePlayerJoined(data);
     },
     
     handle_playerLeft(data) {
-        multiplayerSystem.handlePlayerLeft(data);
+        multiplayerSystem.handlePlayerLeft({ playerId: data, playerName: 'Player' });
     },
     
-    handle_roomUpdated(data) {
-        multiplayerSystem.handleRoomUpdated(data);
+    handle_gameStarting(data) {
+        console.log('🎮 Game starting with countdown:', data.countdown);
+        chatSystem.addSystemMessage(`Game starting in ${data.countdown} seconds...`, 'multiplayer-lobby');
     },
     
     handle_gameStarted(data) {
         multiplayerSystem.handleGameStarted(data);
     },
     
-    handle_question(data) {
-        multiplayerSystem.handleQuestionReceived(data);
-    },
-    
     handle_playerAnswered(data) {
         multiplayerSystem.handlePlayerAnswered(data);
     },
     
+    handle_question(data) {
+        multiplayerSystem.handleQuestionReceived({ questionIndex: data.index });
+    },
+    
     handle_gameEnded(data) {
         multiplayerSystem.handleGameEnded(data);
+    },
+    
+    handle_gameError(data) {
+        console.error('Game error from server:', data.message);
+        categoryManager.showError(data.message);
+    },
+    
+    handle_playerReadyChanged(data) {
+        // Update player ready status in the lobby
+        const player = multiplayerSystem.players.find(p => p.id === data.playerId);
+        if (player) {
+            player.ready = data.ready;
+            multiplayerSystem.updateLobbyDisplay();
+        }
+    },
+    
+    handle_newHost(data) {
+        console.log('👑 New host assigned:', data);
+        chatSystem.addSystemMessage('New host assigned to the game', 'multiplayer-lobby');
     },
     
     handle_chatMessage(data) {
