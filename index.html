@@ -498,6 +498,7 @@
 
 
 /* Multiplayer specific styles */
+/* Multiplayer specific styles */
 .multiplayer-avatar {
     width: 40px;
     height: 40px;
@@ -600,6 +601,81 @@
     text-align: right;
 }
 
+/* Countdown overlay */
+.countdown-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.countdown-content {
+    background: white;
+    padding: 2rem;
+    border-radius: 15px;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.countdown-number {
+    font-size: 4rem;
+    font-weight: bold;
+    color: #4361ee;
+    margin: 1rem 0;
+}
+
+/* Chat styles */
+.chat-container {
+    max-height: 300px;
+}
+
+.chat-messages {
+    max-height: 200px;
+    overflow-y: auto;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.chat-message {
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: white;
+    border-left: 4px solid #007bff;
+}
+
+.chat-message.system-message {
+    background: #fff3cd;
+    border-left-color: #ffc107;
+    font-style: italic;
+}
+
+.chat-message.own-message {
+    background: #d1ecf1;
+    border-left-color: #17a2b8;
+}
+
+.message-header {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin-bottom: 4px;
+}
+
+.message-content {
+    font-size: 0.9rem;
+}
+
+.chat-input-container {
+    background: white;
+    border-top: 1px solid #dee2e6;
+}
 /* Chat styles */
 .chat-container {
     max-height: 300px;
@@ -692,33 +768,7 @@
     50% { opacity: 0.5; }
     100% { opacity: 1; }
 }
-.countdown-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-}
 
-.countdown-content {
-    background: white;
-    padding: 2rem;
-    border-radius: 15px;
-    text-align: center;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-}
-
-.countdown-number {
-    font-size: 4rem;
-    font-weight: bold;
-    color: #4361ee;
-    margin: 1rem 0;
-}
     </style>
 </head>
 <body>
@@ -2898,7 +2948,9 @@ const chatSystem = {
 
 // Enhanced Multiplayer System with Fallback Support
 // Enhanced Multiplayer System with Proper Backend Sync
+// Add this method to the multiplayerSystem object
 const multiplayerSystem = {
+    // ... existing properties and methods ...
     currentRoom: null,
     players: [],
     gameState: null,
@@ -3007,8 +3059,7 @@ const multiplayerSystem = {
             chatSystem.addSystemMessage('A player left the game', 'multiplayer-lobby');
         }
     },
-    
-    handleRoomUpdated(data) {
+     handleRoomUpdated(data) {
         console.log('🔄 Room updated event:', data);
         
         if (data.roomCode === this.currentRoom?.code) {
@@ -3133,8 +3184,7 @@ const multiplayerSystem = {
             chatSystem.addSystemMessage(`${player.name} is ${status}`, 'multiplayer-lobby');
         }
     },
-    
-    handleNewHost(data) {
+     handleNewHost(data) {
         console.log('👑 New host assigned:', data);
         
         // Update host status for all players
@@ -3427,6 +3477,153 @@ const multiplayerSystem = {
         }
     },
 
+
+    createMissingScreens() {
+        const cardBody = document.querySelector('.card-body');
+        if (!cardBody) return;
+
+        // Multiplayer Quiz Screen
+        if (!document.getElementById('multiplayer-quiz-screen')) {
+            const mpQuizScreen = document.createElement('div');
+            mpQuizScreen.id = 'multiplayer-quiz-screen';
+            mpQuizScreen.className = 'd-none';
+            mpQuizScreen.setAttribute('aria-hidden', 'true');
+            mpQuizScreen.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h3 id="mp-current-subject" class="mb-0">Loading Quiz...</h3>
+                        <span class="badge bg-primary" id="mp-question-count-display">Question 1 of 10</span>
+                    </div>
+                    <div class="timer">
+                        <i class="fas fa-clock me-2" aria-hidden="true"></i>
+                        <span id="mp-time-left" aria-live="assertive">30</span>s
+                    </div>
+                </div>
+                
+                <div class="progress mb-4">
+                    <div id="mp-progress-bar" class="progress-bar bg-success" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+                
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-trophy me-2" aria-hidden="true"></i>Live Scoreboard</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="multiplayer-scoreboard" role="list" aria-label="Player scores">
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="mp-question-feedback" class="question-feedback" aria-live="polite">
+                    <i class="fas fa-info-circle me-2" aria-hidden="true"></i>
+                    <span id="mp-feedback-text"></span>
+                </div>
+                
+                <div class="card question-card">
+                    <div class="card-body">
+                        <h4 id="mp-question-text" class="card-title">Loading question...</h4>
+                        <div id="mp-options-container" class="mt-4" role="listbox" aria-label="Answer options">
+                        </div>
+                    </div>
+                </div>
+            `;
+            cardBody.appendChild(mpQuizScreen);
+        }
+
+        // Multiplayer Results Screen
+        if (!document.getElementById('multiplayer-results-screen')) {
+            const mpResultsScreen = document.createElement('div');
+            mpResultsScreen.id = 'multiplayer-results-screen';
+            mpResultsScreen.className = 'd-none';
+            mpResultsScreen.setAttribute('aria-hidden', 'true');
+            mpResultsScreen.innerHTML = `
+                <div class="text-center mb-5">
+                    <h2>Game Finished! 🎉</h2>
+                    <div class="display-4 fw-bold text-primary mb-2" id="mp-final-score">Winner!</div>
+                    <div class="d-flex align-items-center justify-content-center mb-3">
+                        <div id="mp-winner-avatar" class="multiplayer-avatar me-3" style="width: 60px; height: 60px; font-size: 1.5rem;" aria-hidden="true"></div>
+                        <div>
+                            <h4 id="mp-winner-name" class="mb-1">Player</h4>
+                            <p class="mb-0 text-muted" id="mp-winner-score">0 points</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-trophy me-2" aria-hidden="true"></i>Final Leaderboard</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="mp-leaderboard" class="leaderboard" role="list" aria-label="Final rankings">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <button id="play-again-multiplayer" class="btn btn-primary btn-lg me-3">
+                        <i class="fas fa-redo me-2" aria-hidden="true"></i>Play Again
+                    </button>
+                    <button id="back-to-multiplayer-setup" class="btn btn-outline-primary">
+                        <i class="fas fa-home me-2" aria-hidden="true"></i>Multiplayer Menu
+                    </button>
+                </div>
+            `;
+            cardBody.appendChild(mpResultsScreen);
+        }
+
+        // Add event listeners for the new buttons
+        setTimeout(() => {
+            const playAgainBtn = document.getElementById('play-again-multiplayer');
+            const backToSetupBtn = document.getElementById('back-to-multiplayer-setup');
+
+            if (playAgainBtn) {
+                playAgainBtn.addEventListener('click', () => {
+                    this.leaveRoom();
+                    categoryManager.showScreen('multiplayer-setup');
+                });
+            }
+
+            if (backToSetupBtn) {
+                backToSetupBtn.addEventListener('click', () => {
+                    this.leaveRoom();
+                    categoryManager.showScreen('multiplayer-setup');
+                });
+            }
+        }, 100);
+    },
+
+    // Also add the missing addDemoPlayers method
+    addDemoPlayers() {
+        const demoPlayers = [
+            { id: 'demo_player_1', name: 'Kwame', avatar: '👨‍🎓' },
+            { id: 'demo_player_2', name: 'Ama', avatar: '👩‍🔬' },
+            { id: 'demo_player_3', name: 'Kofi', avatar: '👨‍💼' }
+        ];
+        
+        demoPlayers.forEach((player, index) => {
+            setTimeout(() => {
+                if (this.currentRoom) {
+                    this.players.push({
+                        ...player,
+                        score: 0,
+                        isHost: false,
+                        hasAnswered: false,
+                        ready: true
+                    });
+                    
+                    this.updateLobbyDisplay();
+                    categoryManager.showSuccess(`${player.name} joined the room!`);
+                    chatSystem.addSystemMessage(`${player.name} joined the game`, 'multiplayer-lobby');
+                }
+            }, (index + 1) * 2000);
+        });
+    },
+
+    // ... rest of your existing methods ...
+   
+   
+    
+   
     // ... rest of your existing methods (loadQuestion, selectAnswer, etc.)
         loadQuestion(questionIndex) {
         if (!this.gameState || questionIndex >= this.gameState.questions.length) {
@@ -3691,7 +3888,6 @@ const multiplayerSystem = {
         return playerId;
     }
 };
-
 
 //keep this code here
 
