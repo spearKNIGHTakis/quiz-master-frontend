@@ -2647,736 +2647,287 @@
         };
 
         // Enhanced Multiplayer System with Backend Compatibility
-        const multiplayerSystem = {
-            currentRoom: null,
-            players: [],
-            gameState: null,
-            timerInterval: null,
-            timeLeft: 0,
-            lastTimerUpdate: 0,
-            playerId: null,
-            fallbackMode: false,
+      // In index.html - Update the multiplayerSystem object
+const multiplayerSystem = {
+    currentRoom: null,
+    players: [],
+    gameState: null,
+    timerInterval: null,
+    timeLeft: 0,
+    lastTimerUpdate: 0,
+    playerId: null,
+    
+    init() {
+        console.log('🎮 Multiplayer system initialized for real players only');
+        this.playerId = this.generatePlayerId();
+        this.setupSocketListeners();
+        this.createMissingScreens();
+    },
+
+    // Enhanced joinRoom method - remove demo players
+    async joinRoom(roomCode) {
+        const joinBtn = document.getElementById('join-room-btn');
+        buttonManager.setLoading(joinBtn, true, 'Joining Room...');
+        
+        try {
+            const playerName = document.getElementById('mp-player-name').value || 'Player';
+            const avatar = avatarSystem.selectedAvatar;
+
+            if (!roomCode || roomCode.length !== 4) {
+                categoryManager.showError('Please enter a valid 4-character room code');
+                return false;
+            }
+
+            storageManager.savePreferences();
+            categoryManager.showLoading(true);
+
+            // Join room on server
+            const result = await connectionManager.emit('joinRoom', {
+                roomCode: roomCode.toUpperCase(),
+                playerName: playerName,
+                avatar: avatar
+            });
+
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to join room');
+            }
+
+            // Set up temporary room while waiting for server response
+            this.currentRoom = {
+                code: roomCode.toUpperCase(),
+                status: 'waiting'
+            };
+
+            this.players = [{
+                id: this.playerId,
+                name: playerName,
+                avatar: avatar,
+                score: 0,
+                isHost: false,
+                hasAnswered: false,
+                ready: true
+            }];
+
+            this.updateLobbyDisplay();
+            categoryManager.showScreen('multiplayer-lobby');
+            categoryManager.showSuccess(`Joining room: ${roomCode}`);
+
+            return true;
+
+        } catch (error) {
+            console.error('Error joining room:', error);
+            categoryManager.showError(error.message || 'Failed to join room. Please check the room code.');
+            return false;
+        } finally {
+            categoryManager.showLoading(false);
+            buttonManager.setLoading(joinBtn, false, 'Join Room');
+        }
+    },
+
+    // Enhanced room creation - remove demo players
+    async createRoom(settings) {
+        const createBtn = document.getElementById('create-room-btn');
+        buttonManager.setLoading(createBtn, true, 'Creating Room...');
+        
+        try {
+            console.log('🎮 Creating multiplayer room for real players...');
             
-            init() {
-                console.log('🎮 Enhanced multiplayer system initialized');
-                this.playerId = this.generatePlayerId();
-                this.setupSocketListeners();
-                this.createMissingScreens();
-            },
+            const playerName = document.getElementById('mp-player-name').value || 'Player';
+            const avatar = avatarSystem.selectedAvatar;
             
-            setupSocketListeners() {
-                // Listen for real-time events from connection manager
-                connectionManager.on('playerJoined', (data) => {
-                    this.handlePlayerJoined(data);
-                });
-                
-                connectionManager.on('playerLeft', (data) => {
-                    this.handlePlayerLeft(data);
-                });
-                
-                connectionManager.on('roomUpdated', (data) => {
-                    this.handleRoomUpdated(data);
-                });
-                
-                connectionManager.on('gameStarting', (data) => {
-                    this.handleGameStarting(data);
-                });
-                
-                connectionManager.on('gameStarted', (data) => {
-                    this.handleGameStarted(data);
-                });
-                
-                connectionManager.on('question', (data) => {
-                    this.handleQuestionReceived(data);
-                });
-                
-                connectionManager.on('playerAnswered', (data) => {
-                    this.handlePlayerAnswered(data);
-                });
-                
-                connectionManager.on('gameEnded', (data) => {
-                    this.handleGameEnded(data);
-                });
-                
-                connectionManager.on('gameError', (data) => {
-                    this.handleGameError(data);
-                });
-                
-                connectionManager.on('playerReadyChanged', (data) => {
-                    this.handlePlayerReadyChanged(data);
-                });
-                
-                connectionManager.on('newHost', (data) => {
-                    this.handleNewHost(data);
-                });
-                
-                connectionManager.on('chatMessage', (data) => {
-                    chatSystem.handleIncomingMessage(data);
-                });
-            },
-
-            // Enhanced joinRoom method with backend compatibility
-            async joinRoom(roomCode) {
-                const joinBtn = document.getElementById('join-room-btn');
-                buttonManager.setLoading(joinBtn, true, 'Joining Room...');
-                
-                try {
-                    const playerName = document.getElementById('mp-player-name').value || 'Player';
-                    const avatar = avatarSystem.selectedAvatar;
-
-                    if (!roomCode || roomCode.length !== 4) {
-                        categoryManager.showError('Please enter a valid 4-character room code');
-                        return false;
-                    }
-
-                    storageManager.savePreferences();
-
-                    categoryManager.showLoading(true);
-
-                    // If in fallback mode, use local join
-                    if (connectionManager.useFallback) {
-                        this.currentRoom = {
-                            code: roomCode.toUpperCase(),
-                            status: 'waiting'
-                        };
-
-                        this.players = [{
-                            id: this.playerId,
-                            name: playerName,
-                            avatar: avatar,
-                            score: 0,
-                            isHost: false,
-                            hasAnswered: false,
-                            ready: true
-                        }];
-
-                        this.updateLobbyDisplay();
-                        categoryManager.showScreen('multiplayer-lobby');
-                        categoryManager.showSuccess(`Joined local room: ${roomCode}`);
-
-                        return true;
-                    }
-
-                    // Join room on server - note we're sending roomCode, it will be converted to gameCode
-                    const result = await connectionManager.emit('joinRoom', {
-                        roomCode: roomCode.toUpperCase(),
-                        playerName: playerName,
-                        avatar: avatar
-                    });
-
-                    if (!result.success) {
-                        throw new Error(result.error || 'Failed to join room');
-                    }
-
-                    // Set up temporary room while waiting for server response
-                    // The actual room data will come from the gameJoined event
-                    this.currentRoom = {
-                        code: roomCode.toUpperCase(),
-                        status: 'waiting'
-                    };
-
-                    this.players = [{
-                        id: this.playerId,
-                        name: playerName,
-                        avatar: avatar,
-                        score: 0,
-                        isHost: false,
-                        hasAnswered: false,
-                        ready: true
-                    }];
-
-                    this.updateLobbyDisplay();
-                    categoryManager.showScreen('multiplayer-lobby');
-                    categoryManager.showSuccess(`Joining room: ${roomCode}`);
-
-                    return true;
-
-                } catch (error) {
-                    console.error('Error joining room:', error);
-                    categoryManager.showError(error.message || 'Failed to join room. Please check the room code.');
-                    return false;
-                } finally {
-                    categoryManager.showLoading(false);
-                    buttonManager.setLoading(joinBtn, false, 'Join Room');
-                }
-            },
-
-            // Enhanced room creation with better backend sync
-            async createRoom(settings) {
-                const createBtn = document.getElementById('create-room-btn');
-                buttonManager.setLoading(createBtn, true, 'Creating Room...');
-                
-                try {
-                    console.log('🎮 Creating multiplayer room...');
-                    
-                    const playerName = document.getElementById('mp-player-name').value || 'Player';
-                    const avatar = avatarSystem.selectedAvatar;
-                    
-                    storageManager.savePreferences();
-                    
-                    // Generate room code for fallback mode
-                    const roomCode = this.generateRoomCode();
-                    
-                    // If in fallback mode, use local creation
-                    if (connectionManager.useFallback) {
-                        this.currentRoom = {
-                            code: roomCode,
-                            host: this.playerId,
-                            settings: settings,
-                            status: 'waiting'
-                        };
-                        
-                        this.players = [{
-                            id: this.playerId,
-                            name: playerName,
-                            avatar: avatar,
-                            score: 0,
-                            isHost: true,
-                            hasAnswered: false,
-                            ready: true
-                        }];
-                        
-                        this.updateLobbyDisplay();
-                        categoryManager.showScreen('multiplayer-lobby');
-                        categoryManager.showSuccess(`Local room created! Code: ${roomCode}`);
-                        
-                        chatSystem.addSystemMessage(`Local multiplayer room created. Code: ${roomCode}`, 'multiplayer-lobby');
-                        chatSystem.addSystemMessage(`Demo players will join shortly...`, 'multiplayer-lobby');
-                        
-                        // Auto-add demo players in fallback mode
-                        this.addDemoPlayers();
-                        
-                        return true;
-                    }
-                    
-                    // Create room on server
-                    const result = await connectionManager.emit('createRoom', {
-                        playerName: playerName,
-                        avatar: avatar,
-                        settings: settings
-                    });
-                    
-                    if (!result.success) {
-                        throw new Error(result.error || 'Failed to create room');
-                    }
-                    
-                    // The room code will come from the server via gameCreated event
-                    // We'll set up the room when we receive the gameCreated event
-                    
-                    console.log('📤 Room creation request sent to server');
-                    
-                    // Set up a temporary room while waiting for server response
-                    this.currentRoom = {
-                        code: roomCode, // Temporary, will be updated by server
-                        host: this.playerId,
-                        settings: settings,
-                        status: 'waiting'
-                    };
-                    
-                    this.players = [{
-                        id: this.playerId,
-                        name: playerName,
-                        avatar: avatar,
-                        score: 0,
-                        isHost: true,
-                        hasAnswered: false,
-                        ready: true
-                    }];
-                    
-                    this.updateLobbyDisplay();
-                    categoryManager.showScreen('multiplayer-lobby');
-                    categoryManager.showSuccess('Creating room...');
-                    
-                    return true;
-                    
-                } catch (error) {
-                    console.error('Error creating room:', error);
-                    categoryManager.showError(error.message || 'Failed to create room. Please try again.');
-                    return false;
-                } finally {
-                    buttonManager.setLoading(createBtn, false, 'Create Room');
-                }
-            },
-
-            // Enhanced player ready system
-            async sendPlayerReady() {
-                if (this.currentRoom) {
-                    const player = this.players.find(p => p.id === this.playerId);
-                    if (player) {
-                        player.ready = !player.ready;
-                        
-                        await connectionManager.emit('playerReady', {
-                            roomCode: this.currentRoom.code,
-                            playerId: this.playerId,
-                            ready: player.ready
-                        });
-                        
-                        this.updateLobbyDisplay();
-                    }
-                }
-            },
-
-            async requestHostPrivileges() {
-                if (!this.currentRoom?.host && connectionManager.isConnected) {
-                    await connectionManager.emit('requestHost', {
-                        roomCode: this.currentRoom.code,
-                        playerId: this.playerId
-                    });
-                }
-            },
-
-            // Enhanced error handling and resilience
-            handleConnectionFailure() {
-                console.log('🔄 Multiplayer system handling connection failure');
-                
-                if (this.currentRoom) {
-                    chatSystem.addSystemMessage('Connection issues detected. Attempting to reconnect...', 'multiplayer-lobby');
-                    
-                    // Show reconnection UI
-                    this.showReconnectionUI();
-                }
-            },
-
-            showReconnectionUI() {
-                const lobby = document.getElementById('multiplayer-lobby');
-                if (lobby) {
-                    let reconnectElement = lobby.querySelector('.reconnection-alert');
-                    if (!reconnectElement) {
-                        reconnectElement = document.createElement('div');
-                        reconnectElement.className = 'alert alert-warning reconnection-alert';
-                        reconnectElement.innerHTML = `
-                            <i class="fas fa-sync-alt fa-spin me-2"></i>
-                            <span>Attempting to reconnect...</span>
-                            <button class="btn btn-sm btn-outline-warning ms-2" id="force-reconnect">Retry Now</button>
-                        `;
-                        lobby.insertBefore(reconnectElement, lobby.firstChild);
-                        
-                        document.getElementById('force-reconnect').addEventListener('click', () => {
-                            connectionManager.connect();
-                        });
-                    }
-                }
-            },
-
-            // Event handlers
-            handlePlayerJoined(data) {
-                console.log('👤 Player joined event:', data);
-                
-                if (this.currentRoom && this.currentRoom.code === data.roomCode) {
-                    // Check if player already exists
-                    const existingPlayer = this.players.find(p => p.id === data.id);
-                    if (!existingPlayer) {
-                        // Add new player to the list
-                        this.players.push({
-                            id: data.id,
-                            name: data.name,
-                            avatar: data.avatar,
-                            score: data.score || 0,
-                            isHost: data.isHost || false,
-                            hasAnswered: false,
-                            ready: data.ready || false
-                        });
-                        
-                        this.updateLobbyDisplay();
-                        categoryManager.showSuccess(`${data.name} joined the room!`);
-                        chatSystem.addSystemMessage(`${data.name} joined the game`, 'multiplayer-lobby');
-                        
-                        console.log('✅ Updated players list:', this.players);
-                    }
-                } else {
-                    console.log('❌ No current room or room code mismatch');
-                }
-            },
+            storageManager.savePreferences();
             
-            handlePlayerLeft(data) {
-                console.log('👤 Player left event:', data);
-                
-                if (this.currentRoom) {
-                    // Remove player from the list
-                    this.players = this.players.filter(player => player.id !== data.playerId);
-                    this.updateLobbyDisplay();
-                    categoryManager.showError('A player left the room');
-                    chatSystem.addSystemMessage('A player left the game', 'multiplayer-lobby');
-                }
-            },
+            // Create room on server
+            const result = await connectionManager.emit('createRoom', {
+                playerName: playerName,
+                avatar: avatar,
+                settings: settings
+            });
+            
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to create room');
+            }
+            
+            // Set up a temporary room while waiting for server response
+            this.currentRoom = {
+                code: 'WAIT', // Temporary, will be updated by server
+                host: this.playerId,
+                settings: settings,
+                status: 'waiting'
+            };
+            
+            this.players = [{
+                id: this.playerId,
+                name: playerName,
+                avatar: avatar,
+                score: 0,
+                isHost: true,
+                hasAnswered: false,
+                ready: true
+            }];
+            
+            this.updateLobbyDisplay();
+            categoryManager.showScreen('multiplayer-lobby');
+            categoryManager.showSuccess('Creating room...');
+            chatSystem.addSystemMessage('Room created. Share the room code with other players to join!', 'multiplayer-lobby');
+            
+            return true;
+            
+        } catch (error) {
+            console.error('Error creating room:', error);
+            categoryManager.showError(error.message || 'Failed to create room. Please try again.');
+            return false;
+        } finally {
+            buttonManager.setLoading(createBtn, false, 'Create Room');
+        }
+    },
 
-            handleRoomUpdated(data) {
-                console.log('🔄 Room updated event:', data);
-                
-                if (data.roomCode === this.currentRoom?.code) {
-                    // Update full player list from server
-                    if (data.players && Array.isArray(data.players)) {
-                        this.players = data.players.map(player => ({
-                            id: player.id,
-                            name: player.name,
-                            avatar: player.avatar,
-                            score: player.score || 0,
-                            isHost: player.id === data.hostPlayerId,
-                            hasAnswered: false,
-                            ready: player.ready || false
-                        }));
-                    }
-                    
-                    // Update room settings
-                    if (data.settings) {
-                        this.currentRoom.settings = data.settings;
-                    }
-                    
-                    this.currentRoom.host = data.hostPlayerId;
-                    
-                    this.updateLobbyDisplay();
-                    console.log('✅ Room fully synced with', this.players.length, 'players');
-                }
-            },
+    // Enhanced lobby display for real players
+    updateLobbyDisplay() {
+        const roomCodeElement = document.getElementById('room-code');
+        const playerCountElement = document.getElementById('player-count');
+        const playersList = document.getElementById('players-list');
+        const startButton = document.getElementById('start-game-btn');
+        const startHint = document.getElementById('start-game-hint');
 
-            handleGameStarting(data) {
-                console.log('🎮 Game starting event:', data);
-                chatSystem.addSystemMessage(`Game starting in ${data.countdown} seconds...`, 'multiplayer-lobby');
-                
-                // Show countdown in UI
-                this.showGameCountdown(data.countdown);
-            },
+        if (roomCodeElement && this.currentRoom) {
+            roomCodeElement.textContent = this.currentRoom.code || '----';
+        }
 
-            handleGameStarted(data) {
-                console.log('🎮 Game started event:', data);
-                
-                if (this.currentRoom) {
-                    this.gameState = {
-                        currentQuestion: 0,
-                        questions: data.questions,
-                        players: [...this.players],
-                        timePerQuestion: 30
-                    };
-                    
-                    // Reset player answer status for new game
-                    this.players.forEach(player => {
-                        player.hasAnswered = false;
-                        player.score = 0; // Reset scores for new game
-                    });
-                    
-                    chatSystem.addSystemMessage('Game started! Good luck everyone!', 'multiplayer-lobby');
-                    this.loadQuestion(0);
-                }
-            },
+        if (playerCountElement) {
+            playerCountElement.textContent = `${this.players.length} player(s)`;
+            playerCountElement.setAttribute('aria-label', `${this.players.length} players in room`);
+        }
 
-            handleQuestionReceived(data) {
-                console.log('❓ Question received event:', data);
-                
-                if (this.currentRoom && data.questionIndex !== undefined) {
-                    this.loadQuestion(data.questionIndex);
-                }
-            },
+        if (playersList) {
+            // Clear any waiting messages first
+            const existingMessages = playersList.parentNode.querySelectorAll('.waiting-message');
+            existingMessages.forEach(msg => msg.remove());
 
-            handlePlayerAnswered(data) {
-                console.log('✅ Player answered event:', data);
-                
-                if (this.currentRoom) {
-                    // Update player score and answer status
-                    const player = this.players.find(p => p.id === data.playerId);
-                    if (player) {
-                        player.score = data.score || player.score;
-                        player.hasAnswered = true;
-                        
-                        // Update game state if it exists
-                        if (this.gameState) {
-                            const gamePlayer = this.gameState.players.find(p => p.id === data.playerId);
-                            if (gamePlayer) {
-                                gamePlayer.score = data.score || gamePlayer.score;
-                                gamePlayer.hasAnswered = true;
-                            }
-                        }
-                    }
-                    
-                    this.updateScoreboard();
-                    
-                    // Show notification for other players' answers
-                    if (data.playerId !== this.playerId) {
-                        const playerName = player?.name || 'Another player';
-                        const message = data.isCorrect ? 
-                            `${playerName} answered correctly! +${data.points || 100} points` :
-                            `${playerName} answered incorrectly`;
-                        chatSystem.addSystemMessage(message, 'multiplayer-quiz-screen');
-                    }
-                }
-            },
-
-            handleGameEnded(data) {
-                console.log('🏁 Game ended event:', data);
-                
-                if (this.currentRoom) {
-                    this.showResults(data.players || this.players);
-                }
-            },
-
-            handleGameError(data) {
-                console.error('❌ Game error:', data);
-                categoryManager.showError(data.message || 'Game error occurred');
-            },
-
-            handlePlayerReadyChanged(data) {
-                console.log('✅ Player ready changed:', data);
-                
-                const player = this.players.find(p => p.id === data.playerId);
-                if (player) {
-                    player.ready = data.ready;
-                    this.updateLobbyDisplay();
-                    
-                    const status = data.ready ? 'ready' : 'not ready';
-                    chatSystem.addSystemMessage(`${player.name} is ${status}`, 'multiplayer-lobby');
-                }
-            },
-
-            handleNewHost(data) {
-                console.log('👑 New host assigned:', data);
-                
-                // Update host status for all players
-                this.players.forEach(player => {
-                    player.isHost = (player.id === data);
-                });
-                
-                this.updateLobbyDisplay();
-                chatSystem.addSystemMessage('New host assigned to the game', 'multiplayer-lobby');
-                
-                // If this client is the new host, show the start button
-                if (data === this.playerId) {
-                    const startButton = document.getElementById('start-game-btn');
-                    if (startButton) {
-                        startButton.style.display = 'block';
-                    }
-                }
-            },
-
-            showGameCountdown(seconds) {
-                const countdownElement = document.createElement('div');
-                countdownElement.className = 'countdown-overlay';
-                countdownElement.innerHTML = `
-                    <div class="countdown-content">
-                        <h2>Game Starting</h2>
-                        <div class="countdown-number">${seconds}</div>
-                    </div>
+            // Show waiting message if only one player
+            if (this.players.length === 1) {
+                const waitingMessage = document.createElement('div');
+                waitingMessage.className = 'alert alert-info text-center waiting-message';
+                waitingMessage.innerHTML = `
+                    <i class="fas fa-users me-2" aria-hidden="true"></i>
+                    <strong>Waiting for players to join...</strong><br>
+                    <small>Share this room code: <code class="fs-5">${this.currentRoom?.code}</code></small><br>
+                    <small class="text-muted">Other players can join using the "Join Room" option</small>
                 `;
-                
-                document.body.appendChild(countdownElement);
-                
-                let count = seconds;
-                const countdownInterval = setInterval(() => {
-                    count--;
-                    const numberElement = countdownElement.querySelector('.countdown-number');
-                    if (numberElement) {
-                        numberElement.textContent = count;
-                    }
-                    
-                    if (count <= 0) {
-                        clearInterval(countdownInterval);
-                        countdownElement.remove();
-                    }
-                }, 1000);
-            },
+                playersList.parentNode.insertBefore(waitingMessage, playersList);
+            }
 
-            // Enhanced lobby display
-            updateLobbyDisplay() {
-                const roomCodeElement = document.getElementById('room-code');
-                const playerCountElement = document.getElementById('player-count');
-                const playersList = document.getElementById('players-list');
-                const startButton = document.getElementById('start-game-btn');
+            // Render actual players
+            playersList.innerHTML = this.players.map(player => `
+                <div class="player-item ${player.id === this.playerId ? 'current-player' : ''}" role="listitem">
+                    <div class="multiplayer-avatar me-2" aria-hidden="true">${player.avatar}</div>
+                    <div class="flex-grow-1">
+                        <strong>${player.name}</strong>
+                        ${player.id === this.playerId ? '<span class="badge bg-primary ms-2">You</span>' : ''}
+                    </div>
+                    ${player.isHost ? '<span class="badge bg-warning me-2">Host</span>' : ''}
+                    ${player.ready ? '<span class="badge bg-success me-2"><i class="fas fa-check"></i> Ready</span>' : '<span class="badge bg-secondary me-2"><i class="fas fa-clock"></i> Waiting</span>'}
+                </div>
+            `).join('');
+        }
 
-                if (roomCodeElement && this.currentRoom) {
-                    roomCodeElement.textContent = this.currentRoom.code || '----';
+        if (startButton && startHint && this.currentRoom) {
+            const isHost = this.players.find(p => p.id === this.playerId)?.isHost || false;
+            const canStart = this.players.length >= 2 && this.players.every(p => p.ready);
+
+            startButton.style.display = isHost ? 'block' : 'none';
+            startButton.disabled = !canStart;
+
+            if (isHost) {
+                if (this.players.length < 2) {
+                    startHint.textContent = `Need ${2 - this.players.length} more player(s) to start`;
+                    startHint.className = 'text-warning';
+                } else if (!this.players.every(p => p.ready)) {
+                    startHint.textContent = 'Waiting for all players to be ready';
+                    startHint.className = 'text-warning';
+                } else {
+                    startHint.textContent = 'All players ready! You can start the game';
+                    startHint.className = 'text-success';
                 }
+            } else {
+                startHint.textContent = 'Waiting for host to start the game...';
+                startHint.className = 'text-muted';
+            }
+        }
+    },
 
-                if (playerCountElement) {
-                    playerCountElement.textContent = `${this.players.length} player(s)`;
-                    playerCountElement.setAttribute('aria-label', `${this.players.length} players in room`);
-                }
+    // Remove the addDemoPlayers function entirely
+    // Remove this function: addDemoPlayers()
 
-                if (playersList) {
-                    // Clear any waiting messages
-                    const waitingMessages = playersList.parentNode.querySelectorAll('.alert');
-                    waitingMessages.forEach(msg => msg.remove());
+    // Enhanced startGame with real player validation
+    async startGame() {
+        if (!this.currentRoom) {
+            categoryManager.showError('No room found');
+            return;
+        }
 
-                    if (this.players.length === 1 && !connectionManager.useFallback) {
-                        // Show waiting message for real multiplayer
-                        const waitingMessage = document.createElement('div');
-                        waitingMessage.className = 'alert alert-info text-center';
-                        waitingMessage.innerHTML = `
-                            <i class="fas fa-users me-2" aria-hidden="true"></i>
-                            Waiting for other players to join...<br>
-                            <small>Share room code: <strong>${this.currentRoom?.code}</strong></small>
-                        `;
-                        playersList.parentNode.insertBefore(waitingMessage, playersList);
-                    }
+        const currentPlayer = this.players.find(p => p.id === this.playerId);
+        if (!currentPlayer?.isHost) {
+            categoryManager.showError('Only the host can start the game');
+            return;
+        }
 
-                    playersList.innerHTML = this.players.map(player => `
-                        <div class="player-item" role="listitem">
-                            <div class="multiplayer-avatar me-2" aria-hidden="true">${player.avatar}</div>
-                            <div class="flex-grow-1">
-                                <strong>${player.name}</strong>
-                                ${player.id === this.playerId ? '<span class="badge bg-primary ms-2">You</span>' : ''}
-                            </div>
-                            ${player.isHost ? '<span class="badge bg-warning me-2">Host</span>' : ''}
-                            ${player.ready ? '<span class="badge bg-success me-2"><i class="fas fa-check"></i> Ready</span>' : '<span class="badge bg-secondary me-2"><i class="fas fa-clock"></i> Waiting</span>'}
-                            ${player.hasAnswered ? '<span class="badge bg-success ms-2"><i class="fas fa-check-double"></i></span>' : ''}
-                        </div>
-                    `).join('');
-                }
+        if (this.players.length < 2) {
+            categoryManager.showError('Need at least 2 players to start the game');
+            return;
+        }
 
-                if (startButton && this.currentRoom) {
-                    const isHost = this.players.find(p => p.id === this.playerId)?.isHost || false;
-                    const canStart = this.players.length >= 2 || connectionManager.useFallback;
+        if (!this.players.every(p => p.ready)) {
+            categoryManager.showError('All players must be ready before starting');
+            return;
+        }
 
-                    startButton.style.display = isHost ? 'block' : 'none';
-                    startButton.disabled = !canStart;
+        const startBtn = document.getElementById('start-game-btn');
+        buttonManager.setLoading(startBtn, true, 'Starting Game...');
 
-                    if (isHost && !canStart) {
-                        startButton.title = `Need ${2 - this.players.length} more player(s) to start`;
-                        startButton.setAttribute('aria-label', `Start game disabled. Need ${2 - this.players.length} more players`);
-                    } else {
-                        startButton.title = '';
-                        startButton.setAttribute('aria-label', 'Start game');
-                    }
-                }
-            },
+        try {
+            if (connectionManager.useFallback) {
+                // In fallback mode, use local questions but with real players
+                const questions = questionManager.getGhanaCurriculumQuestions(
+                    this.currentRoom.settings.category,
+                    this.currentRoom.settings.subject,
+                    this.currentRoom.settings.difficulty,
+                    this.currentRoom.settings.questionCount
+                );
 
-            createMissingScreens() {
-                const cardBody = document.querySelector('.card-body');
-                if (!cardBody) return;
-
-                // Multiplayer Quiz Screen
-                if (!document.getElementById('multiplayer-quiz-screen')) {
-                    const mpQuizScreen = document.createElement('div');
-                    mpQuizScreen.id = 'multiplayer-quiz-screen';
-                    mpQuizScreen.className = 'd-none';
-                    mpQuizScreen.setAttribute('aria-hidden', 'true');
-                    mpQuizScreen.innerHTML = `
-                        <div class="d-flex justify-content-between align-items-center mb-4">
-                            <div>
-                                <h3 id="mp-current-subject" class="mb-0">Loading Quiz...</h3>
-                                <span class="badge bg-primary" id="mp-question-count-display">Question 1 of 10</span>
-                            </div>
-                            <div class="timer">
-                                <i class="fas fa-clock me-2" aria-hidden="true"></i>
-                                <span id="mp-time-left" aria-live="assertive">30</span>s
-                            </div>
-                        </div>
-                        
-                        <div class="progress mb-4">
-                            <div id="mp-progress-bar" class="progress-bar bg-success" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
-                        </div>
-                        
-                        <div class="card mb-4">
-                            <div class="card-header">
-                                <h5 class="mb-0"><i class="fas fa-trophy me-2" aria-hidden="true"></i>Live Scoreboard</h5>
-                            </div>
-                            <div class="card-body">
-                                <div id="multiplayer-scoreboard" role="list" aria-label="Player scores">
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div id="mp-question-feedback" class="question-feedback" aria-live="polite">
-                            <i class="fas fa-info-circle me-2" aria-hidden="true"></i>
-                            <span id="mp-feedback-text"></span>
-                        </div>
-                        
-                        <div class="card question-card">
-                            <div class="card-body">
-                                <h4 id="mp-question-text" class="card-title">Loading question...</h4>
-                                <div id="mp-options-container" class="mt-4" role="listbox" aria-label="Answer options">
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    cardBody.appendChild(mpQuizScreen);
-                }
-
-                // Multiplayer Results Screen
-                if (!document.getElementById('multiplayer-results-screen')) {
-                    const mpResultsScreen = document.createElement('div');
-                    mpResultsScreen.id = 'multiplayer-results-screen';
-                    mpResultsScreen.className = 'd-none';
-                    mpResultsScreen.setAttribute('aria-hidden', 'true');
-                    mpResultsScreen.innerHTML = `
-                        <div class="text-center mb-5">
-                            <h2>Game Finished! 🎉</h2>
-                            <div class="display-4 fw-bold text-primary mb-2" id="mp-final-score">Winner!</div>
-                            <div class="d-flex align-items-center justify-content-center mb-3">
-                                <div id="mp-winner-avatar" class="multiplayer-avatar me-3" style="width: 60px; height: 60px; font-size: 1.5rem;" aria-hidden="true"></div>
-                                <div>
-                                    <h4 id="mp-winner-name" class="mb-1">Player</h4>
-                                    <p class="mb-0 text-muted" id="mp-winner-score">0 points</p>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="card mb-4">
-                            <div class="card-header">
-                                <h5 class="mb-0"><i class="fas fa-trophy me-2" aria-hidden="true"></i>Final Leaderboard</h5>
-                            </div>
-                            <div class="card-body">
-                                <div id="mp-leaderboard" class="leaderboard" role="list" aria-label="Final rankings">
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="text-center mt-4">
-                            <button id="play-again-multiplayer" class="btn btn-primary btn-lg me-3">
-                                <i class="fas fa-redo me-2" aria-hidden="true"></i>Play Again
-                            </button>
-                            <button id="back-to-multiplayer-setup" class="btn btn-outline-primary">
-                                <i class="fas fa-home me-2" aria-hidden="true"></i>Multiplayer Menu
-                            </button>
-                        </div>
-                    `;
-                    cardBody.appendChild(mpResultsScreen);
-                }
-
-                // Add event listeners for the new buttons
-                setTimeout(() => {
-                    const playAgainBtn = document.getElementById('play-again-multiplayer');
-                    const backToSetupBtn = document.getElementById('back-to-multiplayer-setup');
-
-                    if (playAgainBtn) {
-                        playAgainBtn.addEventListener('click', () => {
-                            this.leaveRoom();
-                            categoryManager.showScreen('multiplayer-setup');
-                        });
-                    }
-
-                    if (backToSetupBtn) {
-                        backToSetupBtn.addEventListener('click', () => {
-                            this.leaveRoom();
-                            categoryManager.showScreen('multiplayer-setup');
-                        });
-                    }
-                }, 100);
-            },
-
-            addDemoPlayers() {
-                const demoPlayers = [
-                    { id: 'demo_player_1', name: 'Kwame', avatar: '👨‍🎓' },
-                    { id: 'demo_player_2', name: 'Ama', avatar: '👩‍🔬' },
-                    { id: 'demo_player_3', name: 'Kofi', avatar: '👨‍💼' }
-                ];
-                
-                demoPlayers.forEach((player, index) => {
-                    setTimeout(() => {
-                        if (this.currentRoom) {
-                            this.players.push({
-                                ...player,
-                                score: 0,
-                                isHost: false,
-                                hasAnswered: false,
-                                ready: true
-                            });
-                            
-                            this.updateLobbyDisplay();
-                            categoryManager.showSuccess(`${player.name} joined the room!`);
-                            chatSystem.addSystemMessage(`${player.name} joined the game`, 'multiplayer-lobby');
-                        }
-                    }, (index + 1) * 2000);
+                this.handleGameStarted({
+                    roomCode: this.currentRoom.code,
+                    questions: questions,
+                    players: this.players,
+                    timePerQuestion: 30
                 });
-            },
+            } else {
+                // Start game on server
+                const result = await connectionManager.emit('startGame', {
+                    roomCode: this.currentRoom.code,
+                    settings: this.currentRoom.settings
+                });
 
+                if (!result.success) {
+                    throw new Error(result.error || 'Failed to start game');
+                }
+
+                categoryManager.showSuccess('Game starting...');
+                chatSystem.addSystemMessage('Game is starting! Get ready!', 'multiplayer-lobby');
+            }
+        } catch (error) {
+            console.error('Error starting game:', error);
+            categoryManager.showError(error.message || 'Failed to start game');
+        } finally {
+            buttonManager.setLoading(startBtn, false, 'Start Game');
+        }
+    },
+
+    // Keep other methods but remove any demo player references
+    // ... rest of the methods remain the same but without demo player code
+
+
+           
             loadQuestion(questionIndex) {
                 if (!this.gameState || questionIndex >= this.gameState.questions.length) {
                     // Game finished
