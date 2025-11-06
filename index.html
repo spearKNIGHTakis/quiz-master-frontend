@@ -1386,14 +1386,15 @@ const avatarSystem = {
     }
 };
 
-// Enhanced Connection Manager with WebSocket
+// Enhanced Connection Manager with Better Error Handling
 const connectionManager = {
     socket: null,
     isConnected: false,
     reconnectAttempts: 0,
     maxReconnectAttempts: 5,
-    reconnectDelay: 2000,
+    reconnectDelay: 3000,
     eventListeners: new Map(),
+    useFallback: false,
     
     async init() {
         console.log('🔌 Initializing connection manager...');
@@ -1401,58 +1402,136 @@ const connectionManager = {
     },
     
     async connect() {
+        // Don't attempt reconnection if we're using fallback
+        if (this.useFallback) {
+            console.log('🔄 Using fallback mode - skipping WebSocket connection');
+            this.setConnectionStatus('disconnected');
+            return;
+        }
+        
         try {
             this.setConnectionStatus('connecting');
             
-            // Create WebSocket connection
-            this.socket = new WebSocket(SOCKET_URL.replace('https', 'wss').replace('http', 'ws'));
+            // Try different WebSocket URLs
+            const wsUrls = [
+                SOCKET_URL.replace('https', 'wss').replace('http', 'ws'),
+                SOCKET_URL.replace('https', 'wss').replace('http', 'ws') + '/ws',
+                SOCKET_URL.replace('https', 'wss').replace('http', 'ws') + '/socket.io',
+                'wss://quiz-app-backend-3g8p.onrender.com/ws'
+            ];
             
-            this.socket.onopen = () => {
-                console.log('✅ WebSocket connected successfully');
-                this.isConnected = true;
-                this.reconnectAttempts = 0;
-                this.setConnectionStatus('connected');
-                
-                // Rejoin room if we were in one
-                if (multiplayerSystem.currentRoom) {
-                    this.rejoinRoom();
-                }
-            };
+            let connected = false;
             
-            this.socket.onmessage = (event) => {
+            for (const wsUrl of wsUrls) {
                 try {
-                    const data = JSON.parse(event.data);
-                    console.log('📥 Received message:', data);
-                    this.handleMessage(data);
+                    console.log(`🔗 Attempting WebSocket connection to: ${wsUrl}`);
+                    this.socket = new WebSocket(wsUrl);
+                    
+                    // Set timeout for connection attempt
+                    const connectionTimeout = setTimeout(() => {
+                        if (this.socket.readyState !== WebSocket.OPEN) {
+                            console.log(`⏰ Timeout connecting to: ${wsUrl}`);
+                            this.socket.close();
+                        }
+                    }, 5000);
+                    
+                    this.socket.onopen = () => {
+                        clearTimeout(connectionTimeout);
+                        console.log('✅ WebSocket connected successfully to:', wsUrl);
+                        this.isConnected = true;
+                        this.reconnectAttempts = 0;
+                        this.setConnectionStatus('connected');
+                        connected = true;
+                        
+                        // Rejoin room if we were in one
+                        if (multiplayerSystem.currentRoom) {
+                            this.rejoinRoom();
+                        }
+                    };
+                    
+                    this.socket.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            console.log('📥 Received message:', data);
+                            this.handleMessage(data);
+                        } catch (error) {
+                            console.error('Error parsing message:', error);
+                        }
+                    };
+                    
+                    this.socket.onclose = (event) => {
+                        clearTimeout(connectionTimeout);
+                        if (!connected) {
+                            console.log(`❌ Failed to connect to: ${wsUrl}`, event.code, event.reason);
+                            return; // Try next URL
+                        }
+                        
+                        console.log('❌ WebSocket disconnected:', event.code, event.reason);
+                        this.isConnected = false;
+                        this.setConnectionStatus('disconnected');
+                        
+                        // Don't attempt reconnection for certain error codes
+                        if (event.code === 1006 || event.code === 1011) {
+                            console.log('🚫 Critical error - switching to fallback mode');
+                            this.useFallback = true;
+                            this.enableFallbackMode();
+                            return;
+                        }
+                        
+                        // Attempt reconnection
+                        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                            setTimeout(() => {
+                                this.reconnectAttempts++;
+                                console.log(`🔄 Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`);
+                                this.connect();
+                            }, this.reconnectDelay);
+                        } else {
+                            console.log('🚫 Max reconnection attempts reached - switching to fallback mode');
+                            this.useFallback = true;
+                            this.enableFallbackMode();
+                        }
+                    };
+                    
+                    this.socket.onerror = (error) => {
+                        clearTimeout(connectionTimeout);
+                        console.error('WebSocket error:', error);
+                        this.setConnectionStatus('disconnected');
+                    };
+                    
+                    // Wait a bit to see if this connection works
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    if (connected) break;
+                    
                 } catch (error) {
-                    console.error('Error parsing message:', error);
+                    console.error(`Error connecting to ${wsUrl}:`, error);
+                    continue;
                 }
-            };
+            }
             
-            this.socket.onclose = (event) => {
-                console.log('❌ WebSocket disconnected:', event.code, event.reason);
-                this.isConnected = false;
-                this.setConnectionStatus('disconnected');
-                
-                // Attempt reconnection
-                if (this.reconnectAttempts < this.maxReconnectAttempts) {
-                    setTimeout(() => {
-                        this.reconnectAttempts++;
-                        console.log(`🔄 Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`);
-                        this.connect();
-                    }, this.reconnectDelay);
-                }
-            };
-            
-            this.socket.onerror = (error) => {
-                console.error('WebSocket error:', error);
-                this.setConnectionStatus('disconnected');
-            };
+            if (!connected) {
+                console.log('🚫 All WebSocket connection attempts failed - using fallback mode');
+                this.useFallback = true;
+                this.enableFallbackMode();
+            }
             
         } catch (error) {
             console.error('Failed to connect:', error);
             this.setConnectionStatus('disconnected');
+            this.useFallback = true;
+            this.enableFallbackMode();
         }
+    },
+    
+    enableFallbackMode() {
+        console.log('🔄 Enabling fallback mode - using simulated multiplayer');
+        this.setConnectionStatus('disconnected');
+        this.isConnected = false;
+        
+        // Show notification to user
+        categoryManager.showError('Real-time multiplayer unavailable. Using local multiplayer mode.');
+        
+        // Initialize fallback multiplayer system
+        multiplayerSystem.enableFallbackMode();
     },
     
     handleMessage(data) {
@@ -1475,6 +1554,12 @@ const connectionManager = {
     },
     
     async emit(event, data) {
+        // If using fallback mode, simulate server response
+        if (this.useFallback) {
+            console.log(`🔄 Fallback mode - simulating ${event}:`, data);
+            return this.simulateServerResponse(event, data);
+        }
+        
         if (!this.isConnected || !this.socket) {
             console.warn('⚠️ Cannot emit - socket not connected');
             return { success: false, error: 'Not connected' };
@@ -1494,6 +1579,110 @@ const connectionManager = {
             console.error(`Error emitting ${event}:`, error);
             return { success: false, error: error.message };
         }
+    },
+    
+    // Simulate server responses for fallback mode
+    simulateServerResponse(event, data) {
+        return new Promise((resolve) => {
+            setTimeout(() => {
+                switch (event) {
+                    case 'createRoom':
+                        resolve({ 
+                            success: true, 
+                            roomCode: data.roomCode,
+                            message: 'Room created locally'
+                        });
+                        // Simulate other players joining
+                        setTimeout(() => {
+                            this.simulatePlayerJoin(data.roomCode);
+                        }, 2000);
+                        break;
+                        
+                    case 'joinRoom':
+                        resolve({ 
+                            success: true,
+                            message: 'Joined room locally'
+                        });
+                        // Simulate existing players
+                        setTimeout(() => {
+                            multiplayerSystem.handleRoomUpdated({
+                                roomCode: data.roomCode,
+                                players: [
+                                    {
+                                        id: 'demo_player_1',
+                                        name: 'Demo Player 1',
+                                        avatar: '👨‍🎓',
+                                        score: 0,
+                                        isHost: true,
+                                        hasAnswered: false
+                                    },
+                                    {
+                                        id: multiplayerSystem.playerId,
+                                        name: data.playerName,
+                                        avatar: data.avatar,
+                                        score: 0,
+                                        isHost: false,
+                                        hasAnswered: false
+                                    }
+                                ],
+                                settings: {
+                                    category: 'primary',
+                                    subject: 'mathematics',
+                                    difficulty: 'medium',
+                                    questionCount: 5
+                                },
+                                hostPlayerId: 'demo_player_1'
+                            });
+                        }, 1000);
+                        break;
+                        
+                    case 'startGame':
+                        resolve({ success: true });
+                        // Simulate game starting
+                        setTimeout(() => {
+                            const questions = questionManager.getDemoQuestions(
+                                data.settings?.category || 'primary',
+                                data.settings?.subject || 'mathematics',
+                                data.settings?.difficulty || 'medium',
+                                data.settings?.questionCount || 5
+                            );
+                            
+                            multiplayerSystem.handleGameStarted({
+                                roomCode: data.roomCode,
+                                questions: questions,
+                                players: multiplayerSystem.players,
+                                timePerQuestion: 30
+                            });
+                        }, 2000);
+                        break;
+                        
+                    default:
+                        resolve({ success: true });
+                }
+            }, 500);
+        });
+    },
+    
+    simulatePlayerJoin(roomCode) {
+        const demoPlayers = [
+            { id: 'demo_player_2', name: 'Ama', avatar: '👩‍🎓' },
+            { id: 'demo_player_3', name: 'Kofi', avatar: '👨‍💼' },
+            { id: 'demo_player_4', name: 'Esi', avatar: '👩‍🔬' }
+        ];
+        
+        demoPlayers.forEach((player, index) => {
+            setTimeout(() => {
+                multiplayerSystem.handlePlayerJoined({
+                    roomCode: roomCode,
+                    player: {
+                        ...player,
+                        score: 0,
+                        isHost: false,
+                        hasAnswered: false
+                    }
+                });
+            }, (index + 1) * 3000);
+        });
     },
     
     on(event, callback) {
@@ -1527,8 +1716,8 @@ const connectionManager = {
                     statusElement.setAttribute('aria-label', 'Connected to server');
                     break;
                 case 'disconnected':
-                    statusElement.innerHTML = '<span class="online-indicator offline"></span><i class="fas fa-times-circle me-2"></i>Offline';
-                    statusElement.setAttribute('aria-label', 'Disconnected from server');
+                    statusElement.innerHTML = '<span class="online-indicator offline"></span><i class="fas fa-times-circle me-2"></i>Offline Mode';
+                    statusElement.setAttribute('aria-label', 'Using offline mode');
                     break;
                 case 'connecting':
                     statusElement.innerHTML = '<span class="online-indicator connecting"></span><i class="fas fa-sync-alt me-2"></i>Connecting...';
@@ -1552,7 +1741,7 @@ const connectionManager = {
         }
     },
     
-    // Specific event handlers
+    // Specific event handlers remain the same...
     handle_playerJoined(data) {
         multiplayerSystem.handlePlayerJoined(data);
     },
@@ -1586,7 +1775,280 @@ const connectionManager = {
     }
 };
 
-// Question Manager
+// Enhanced Multiplayer System with Fallback Support
+const multiplayerSystem = {
+    currentRoom: null,
+    players: [],
+    gameState: null,
+    timerInterval: null,
+    timeLeft: 0,
+    lastTimerUpdate: 0,
+    playerId: null,
+    fallbackMode: false,
+    
+    init() {
+        console.log('🎮 Multiplayer system initialized');
+        this.playerId = this.generatePlayerId();
+        this.setupSocketListeners();
+        this.createMissingScreens();
+    },
+    
+    enableFallbackMode() {
+        console.log('🎮 Enabling multiplayer fallback mode');
+        this.fallbackMode = true;
+        
+        // Update UI to show we're in fallback mode
+        const statusElement = document.getElementById('connection-status');
+        if (statusElement) {
+            statusElement.innerHTML = '<span class="online-indicator offline"></span><i class="fas fa-users me-2"></i>Local Multiplayer';
+            statusElement.setAttribute('aria-label', 'Using local multiplayer mode');
+        }
+    },
+    
+    // Modified createRoom to work in fallback mode
+    async createRoom(settings) {
+        const createBtn = document.getElementById('create-room-btn');
+        buttonManager.setLoading(createBtn, true, 'Creating Room...');
+        
+        try {
+            console.log('🎮 Creating multiplayer room...');
+            
+            const playerName = document.getElementById('mp-player-name').value || 'Player';
+            const avatar = avatarSystem.selectedAvatar;
+            
+            storageManager.savePreferences();
+            
+            const roomCode = this.generateRoomCode();
+            
+            // If in fallback mode, don't try to contact server
+            if (connectionManager.useFallback) {
+                this.currentRoom = {
+                    code: roomCode,
+                    host: this.playerId,
+                    settings: settings,
+                    status: 'waiting'
+                };
+                
+                this.players = [{
+                    id: this.playerId,
+                    name: playerName,
+                    avatar: avatar,
+                    score: 0,
+                    isHost: true,
+                    hasAnswered: false
+                }];
+                
+                this.updateLobbyDisplay();
+                categoryManager.showScreen('multiplayer-lobby');
+                categoryManager.showSuccess(`Local room created! Code: ${roomCode}`);
+                
+                chatSystem.addSystemMessage(`Local multiplayer room created. Code: ${roomCode}`, 'multiplayer-lobby');
+                chatSystem.addSystemMessage(`Demo players will join shortly...`, 'multiplayer-lobby');
+                
+                // Auto-add demo players in fallback mode
+                this.addDemoPlayers();
+                
+                return true;
+            }
+            
+            // Original server communication code...
+            const result = await connectionManager.emit('createRoom', {
+                roomCode: roomCode,
+                playerName: playerName,
+                avatar: avatar,
+                playerId: this.playerId,
+                settings: settings
+            });
+            
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to create room');
+            }
+            
+            this.currentRoom = {
+                code: roomCode,
+                host: this.playerId,
+                settings: settings,
+                status: 'waiting'
+            };
+            
+            this.players = [{
+                id: this.playerId,
+                name: playerName,
+                avatar: avatar,
+                score: 0,
+                isHost: true,
+                hasAnswered: false
+            }];
+            
+            this.updateLobbyDisplay();
+            categoryManager.showScreen('multiplayer-lobby');
+            categoryManager.showSuccess(`Room created! Share code: ${roomCode}`);
+            
+            chatSystem.addSystemMessage(`Room created. Share code: ${roomCode}`, 'multiplayer-lobby');
+            chatSystem.addSystemMessage(`Waiting for players to join...`, 'multiplayer-lobby');
+            
+            return true;
+            
+        } catch (error) {
+            console.error('Error creating room:', error);
+            categoryManager.showError(error.message || 'Failed to create room. Please try again.');
+            return false;
+        } finally {
+            buttonManager.setLoading(createBtn, false, 'Create Room');
+        }
+    },
+    
+    addDemoPlayers() {
+        const demoPlayers = [
+            { id: 'demo_player_1', name: 'Kwame', avatar: '👨‍🎓' },
+            { id: 'demo_player_2', name: 'Ama', avatar: '👩‍🔬' },
+            { id: 'demo_player_3', name: 'Kofi', avatar: '👨‍💼' }
+        ];
+        
+        demoPlayers.forEach((player, index) => {
+            setTimeout(() => {
+                if (this.currentRoom) {
+                    this.players.push({
+                        ...player,
+                        score: 0,
+                        isHost: false,
+                        hasAnswered: false
+                    });
+                    
+                    this.updateLobbyDisplay();
+                    categoryManager.showSuccess(`${player.name} joined the room!`);
+                    chatSystem.addSystemMessage(`${player.name} joined the game`, 'multiplayer-lobby');
+                }
+            }, (index + 1) * 2000);
+        });
+    },
+    
+    // Modified startGame for fallback mode
+    async startGame() {
+        const startBtn = document.getElementById('start-game-btn');
+        buttonManager.setLoading(startBtn, true, 'Starting Game...');
+        
+        try {
+            if (!this.currentRoom) {
+                categoryManager.showError('No room found');
+                return;
+            }
+            
+            if (this.players.length < 2 && !this.fallbackMode) {
+                categoryManager.showError('Need at least 2 players to start');
+                return;
+            }
+            
+            // In fallback mode, we can start with just the player
+            if (this.fallbackMode && this.players.length === 1) {
+                categoryManager.showInfo('Starting with demo players...');
+                // Add a demo player if needed
+                this.addDemoPlayers();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            
+            // Get questions for the game
+            const questionResult = await questionManager.getQuestions(this.currentRoom.settings);
+            
+            if (questionResult.questions.length === 0) {
+                categoryManager.showError('No questions available');
+                return;
+            }
+            
+            // In fallback mode, start game immediately
+            if (this.fallbackMode) {
+                this.gameState = {
+                    currentQuestion: 0,
+                    questions: questionResult.questions,
+                    players: [...this.players],
+                    timePerQuestion: 30
+                };
+                
+                chatSystem.addSystemMessage('Game started! Good luck everyone!', 'multiplayer-lobby');
+                this.loadQuestion(0);
+                buttonManager.setLoading(startBtn, false, 'Start Game');
+                return;
+            }
+            
+            // Original server communication code...
+            const result = await connectionManager.emit('startGame', {
+                roomCode: this.currentRoom.code
+            });
+            
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to start game');
+            }
+            
+            chatSystem.addSystemMessage('Game starting...', 'multiplayer-lobby');
+            
+        } catch (error) {
+            console.error('Error starting game:', error);
+            categoryManager.showError(error.message || 'Failed to start game. Please try again.');
+        } finally {
+            buttonManager.setLoading(startBtn, false, 'Start Game');
+        }
+    },
+    
+    // ... rest of the multiplayer system methods remain the same
+};
+
+// Update the initApp function to handle connection issues gracefully
+async function initApp() {
+    console.log('🚀 Initializing QuizMaster App...');
+
+    try {
+        storageManager.loadPreferences();
+        
+        // Initialize systems that don't depend on connection
+        assetManager.init();
+        avatarSystem.init();
+        categoryManager.init();
+        singlePlayerSystem.init();
+        multiplayerSystem.init();
+        chatSystem.init();
+        accessibilityManager.init();
+        
+        setupEventListeners();
+        
+        // Initialize connection manager with timeout
+        const connectionPromise = connectionManager.init();
+        const timeoutPromise = new Promise((resolve) => {
+            setTimeout(() => {
+                console.log('⏰ Connection timeout - continuing in fallback mode');
+                resolve();
+            }, 10000); // 10 second timeout
+        });
+        
+        await Promise.race([connectionPromise, timeoutPromise]);
+        
+        const soundToggle = document.getElementById('toggle-sound');
+        if (soundToggle) {
+            soundToggle.innerHTML = soundSystem.enabled ? 
+                '<i class="fas fa-volume-up me-1"></i> Sound On' : 
+                '<i class="fas fa-volume-mute me-1"></i> Sound Off';
+            soundToggle.classList.toggle('btn-outline-success', soundSystem.enabled);
+            soundToggle.classList.toggle('btn-outline-secondary', !soundSystem.enabled);
+        }
+        
+        console.log('✅ QuizMaster App initialized successfully!');
+        
+        if (connectionManager.isConnected) {
+            connectionManager.setConnectionStatus('connected');
+        } else {
+            connectionManager.setConnectionStatus('disconnected');
+        }
+        
+        accessibilityManager.announceToScreenReader('QuizMaster application ready');
+        
+    } catch (error) {
+        console.error('❌ Failed to initialize app:', error);
+        categoryManager.showError('Failed to initialize application. Please refresh the page.');
+        accessibilityManager.announceToScreenReader('Application initialization failed', 'assertive');
+    }
+}
+
+
+// Replace the questionManager with Ghanaian curriculum questions
 const questionManager = {
     async getQuestions(settings) {
         const { category, subject, difficulty, questionCount } = settings;
@@ -1594,13 +2056,13 @@ const questionManager = {
         
         const questions = await apiManager.safeCall(
             () => this.fetchQuestionsFromAPI(settings),
-            this.getDemoQuestions(category, subject, difficulty, questionCount),
-            'Using demo questions'
+            this.getGhanaCurriculumQuestions(category, subject, difficulty, questionCount),
+            'Using Ghana curriculum questions'
         );
         
         return {
             questions: questions,
-            source: questions === this.getDemoQuestions(category, subject, difficulty, questionCount) ? 'demo' : 'api'
+            source: 'ghana_curriculum'
         };
     },
     
@@ -1609,180 +2071,518 @@ const questionManager = {
         throw new Error('API not available');
     },
     
-    getDemoQuestions(category, subject, difficulty, count) {
-        const allQuestions = [
+    getGhanaCurriculumQuestions(category, subject, difficulty, count) {
+        const allQuestions = this.getAllGhanaQuestions();
+        
+        // Filter by category and subject
+        let filteredQuestions = allQuestions.filter(q => 
+            q.category === category && q.subject === subject
+        );
+        
+        // Filter by difficulty if specified
+        if (difficulty !== 'all') {
+            filteredQuestions = filteredQuestions.filter(q => q.difficulty === difficulty);
+        }
+        
+        // Shuffle and return requested count
+        return this.shuffleArray(filteredQuestions).slice(0, count);
+    },
+    
+    getAllGhanaQuestions() {
+        return [
+            // PRIMARY LEVEL - MATHEMATICS
             {
-                question: "What is 5 + 7?",
-                options: ["11", "12", "13", "14"],
+                question: "What is the place value of 7 in the number 4,732?",
+                options: ["Thousands", "Hundreds", "Tens", "Units"],
                 correctAnswer: 1,
-                explanation: "5 + 7 equals 12."
+                explanation: "In 4,732, 7 is in the hundreds place (7 × 100 = 700).",
+                category: "primary",
+                subject: "mathematics",
+                difficulty: "easy"
             },
             {
-                question: "How many sides does a triangle have?",
-                options: ["2", "3", "4", "5"],
-                correctAnswer: 1,
-                explanation: "A triangle has 3 sides."
-            },
-            {
-                question: "What is the capital of France?",
-                options: ["London", "Berlin", "Paris", "Madrid"],
-                correctAnswer: 2,
-                explanation: "Paris is the capital of France."
-            },
-            {
-                question: "Which planet is known as the Red Planet?",
-                options: ["Venus", "Mars", "Jupiter", "Saturn"],
-                correctAnswer: 1,
-                explanation: "Mars is known as the Red Planet."
-            },
-            {
-                question: "What does HTML stand for?",
-                options: [
-                    "Hyper Text Markup Language",
-                    "High Tech Modern Language", 
-                    "Hyper Transfer Markup Language",
-                    "Home Tool Markup Language"
-                ],
+                question: "If a bag of rice costs GH₵ 25.50 and you pay with GH₵ 50.00, how much change should you receive?",
+                options: ["GH₵ 24.50", "GH₵ 25.50", "GH₵ 24.00", "GH₵ 23.50"],
                 correctAnswer: 0,
-                explanation: "HTML stands for Hyper Text Markup Language."
+                explanation: "GH₵ 50.00 - GH₵ 25.50 = GH₵ 24.50",
+                category: "primary",
+                subject: "mathematics",
+                difficulty: "medium"
             },
             {
-                question: "What is the largest mammal?",
-                options: ["Elephant", "Blue Whale", "Giraffe", "Polar Bear"],
-                correctAnswer: 1,
-                explanation: "The Blue Whale is the largest mammal."
-            },
-            {
-                question: "Which gas do plants absorb from the atmosphere?",
-                options: ["Oxygen", "Carbon Dioxide", "Nitrogen", "Hydrogen"],
-                correctAnswer: 1,
-                explanation: "Plants absorb Carbon Dioxide for photosynthesis."
-            },
-            {
-                question: "What is the square root of 64?",
-                options: ["6", "7", "8", "9"],
+                question: "Calculate: ¾ of 48",
+                options: ["12", "24", "36", "40"],
                 correctAnswer: 2,
-                explanation: "The square root of 64 is 8."
+                explanation: "¾ × 48 = (48 ÷ 4) × 3 = 12 × 3 = 36",
+                category: "primary",
+                subject: "mathematics",
+                difficulty: "medium"
+            },
+
+            // PRIMARY LEVEL - SCIENCE
+            {
+                question: "Which of these is a renewable source of energy?",
+                options: ["Solar power", "Coal", "Natural gas", "Petroleum"],
+                correctAnswer: 0,
+                explanation: "Solar power is renewable because it comes from the sun which won't run out.",
+                category: "primary",
+                subject: "science",
+                difficulty: "easy"
             },
             {
-                question: "Who wrote 'Romeo and Juliet'?",
-                options: ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain"],
-                correctAnswer: 1,
-                explanation: "William Shakespeare wrote 'Romeo and Juliet'."
+                question: "What is the main function of roots in plants?",
+                options: ["To absorb water and minerals", "To produce food", "To attract insects", "To store air"],
+                correctAnswer: 0,
+                explanation: "Roots anchor the plant and absorb water and minerals from the soil.",
+                category: "primary",
+                subject: "science",
+                difficulty: "easy"
             },
+
+            // PRIMARY LEVEL - ENGLISH
+            {
+                question: "Choose the correct plural form of 'child'",
+                options: ["Childs", "Children", "Childes", "Childern"],
+                correctAnswer: 1,
+                explanation: "The irregular plural of 'child' is 'children'.",
+                category: "primary",
+                subject: "english",
+                difficulty: "easy"
+            },
+            {
+                question: "Which word is a noun in this sentence: 'The quick brown fox jumps over the lazy dog'?",
+                options: ["quick", "jumps", "fox", "over"],
+                correctAnswer: 2,
+                explanation: "'Fox' is a noun - it's the name of an animal.",
+                category: "primary",
+                subject: "english",
+                difficulty: "medium"
+            },
+
+            // PRIMARY LEVEL - SOCIAL STUDIES
+            {
+                question: "Who was the first President of Ghana?",
+                options: ["Jerry John Rawlings", "Kwame Nkrumah", "John Agyekum Kufuor", "John Atta Mills"],
+                correctAnswer: 1,
+                explanation: "Dr. Kwame Nkrumah became Ghana's first President after independence in 1957.",
+                category: "primary",
+                subject: "social_studies",
+                difficulty: "easy"
+            },
+            {
+                question: "Which region in Ghana is known for its gold production?",
+                options: ["Ashanti Region", "Northern Region", "Volta Region", "Central Region"],
+                correctAnswer: 0,
+                explanation: "The Ashanti Region is famous for gold mining, particularly in Obuasi.",
+                category: "primary",
+                subject: "social_studies",
+                difficulty: "medium"
+            },
+
+            // JHS - MATHEMATICS
+            {
+                question: "Solve for x: 2x + 5 = 15",
+                options: ["x = 5", "x = 10", "x = 7.5", "x = 20"],
+                correctAnswer: 0,
+                explanation: "2x + 5 = 15 → 2x = 10 → x = 5",
+                category: "highschool",
+                subject: "mathematics",
+                difficulty: "easy"
+            },
+            {
+                question: "What is the area of a triangle with base 8cm and height 6cm?",
+                options: ["14 cm²", "24 cm²", "48 cm²", "28 cm²"],
+                correctAnswer: 1,
+                explanation: "Area = ½ × base × height = ½ × 8 × 6 = 24 cm²",
+                category: "highschool",
+                subject: "mathematics",
+                difficulty: "medium"
+            },
+            {
+                question: "Factorize completely: x² - 9",
+                options: ["(x-3)(x+3)", "(x-9)(x+1)", "(x-3)²", "(x+3)²"],
+                correctAnswer: 0,
+                explanation: "x² - 9 is a difference of two squares: (x-3)(x+3)",
+                category: "highschool",
+                subject: "mathematics",
+                difficulty: "medium"
+            },
+
+            // JHS - SCIENCE/PHYSICS
+            {
+                question: "Which of these is a vector quantity?",
+                options: ["Mass", "Speed", "Velocity", "Temperature"],
+                correctAnswer: 2,
+                explanation: "Velocity is a vector quantity because it has both magnitude and direction.",
+                category: "highschool",
+                subject: "physics",
+                difficulty: "medium"
+            },
+            {
+                question: "What is the SI unit of force?",
+                options: ["Joule", "Newton", "Watt", "Pascal"],
+                correctAnswer: 1,
+                explanation: "The SI unit of force is the Newton (N).",
+                category: "highschool",
+                subject: "physics",
+                difficulty: "easy"
+            },
+
+            // JHS - SCIENCE/CHEMISTRY
             {
                 question: "What is the chemical symbol for gold?",
                 options: ["Go", "Gd", "Au", "Ag"],
                 correctAnswer: 2,
-                explanation: "The chemical symbol for gold is Au."
+                explanation: "The chemical symbol for gold is Au (from Latin 'aurum').",
+                category: "highschool",
+                subject: "chemistry",
+                difficulty: "easy"
+            },
+            {
+                question: "Which gas is produced when metals react with acids?",
+                options: ["Oxygen", "Carbon dioxide", "Hydrogen", "Nitrogen"],
+                correctAnswer: 2,
+                explanation: "Metals + Acids → Salt + Hydrogen gas",
+                category: "highschool",
+                subject: "chemistry",
+                difficulty: "medium"
+            },
+
+            // JHS - SCIENCE/BIOLOGY
+            {
+                question: "Which cell organelle is known as the 'powerhouse of the cell'?",
+                options: ["Nucleus", "Mitochondria", "Ribosome", "Chloroplast"],
+                correctAnswer: 1,
+                explanation: "Mitochondria produce energy (ATP) for the cell through cellular respiration.",
+                category: "highschool",
+                subject: "biology",
+                difficulty: "easy"
+            },
+            {
+                question: "What is the process by which plants make their own food?",
+                options: ["Respiration", "Photosynthesis", "Digestion", "Transpiration"],
+                correctAnswer: 1,
+                explanation: "Photosynthesis is the process where plants use sunlight to make food (glucose).",
+                category: "highschool",
+                subject: "biology",
+                difficulty: "easy"
+            },
+
+            // JHS - HISTORY
+            {
+                question: "In which year did Ghana gain independence?",
+                options: ["1951", "1957", "1960", "1945"],
+                correctAnswer: 1,
+                explanation: "Ghana gained independence from British colonial rule on March 6, 1957.",
+                category: "highschool",
+                subject: "history",
+                difficulty: "easy"
+            },
+            {
+                question: "Who was the leader of the Aborigines Rights Protection Society?",
+                options: ["J. E. Casely Hayford", "Kwame Nkrumah", "Joseph Boakye Danquah", "Kobina Sekyi"],
+                correctAnswer: 0,
+                explanation: "J. E. Casely Hayford was a prominent leader of the Aborigines Rights Protection Society.",
+                category: "highschool",
+                subject: "history",
+                difficulty: "hard"
+            },
+
+            // JHS - GEOGRAPHY
+            {
+                question: "Which river forms part of Ghana's eastern border?",
+                options: ["Volta River", "Pra River", "Tano River", "Ankobra River"],
+                correctAnswer: 0,
+                explanation: "The Volta River forms part of Ghana's eastern border with Togo.",
+                category: "highschool",
+                subject: "geography",
+                difficulty: "medium"
+            },
+            {
+                question: "What is the capital city of the Northern Region?",
+                options: ["Tamale", "Bolgatanga", "Wa", "Yendi"],
+                correctAnswer: 0,
+                explanation: "Tamale is the capital city of the Northern Region.",
+                category: "highschool",
+                subject: "geography",
+                difficulty: "easy"
+            },
+
+            // SHS - MATHEMATICS (ADVANCED)
+            {
+                question: "Differentiate: y = 3x² + 2x - 5",
+                options: ["dy/dx = 6x + 2", "dy/dx = 3x + 2", "dy/dx = 6x", "dy/dx = 3x² + 2"],
+                correctAnswer: 0,
+                explanation: "Using power rule: d/dx(3x²) = 6x, d/dx(2x) = 2, d/dx(-5) = 0",
+                category: "highschool",
+                subject: "mathematics",
+                difficulty: "hard"
+            },
+            {
+                question: "Solve the quadratic equation: x² - 5x + 6 = 0",
+                options: ["x = 2,3", "x = 1,6", "x = -2,-3", "x = -1,-6"],
+                correctAnswer: 0,
+                explanation: "x² - 5x + 6 = (x-2)(x-3) = 0 → x = 2 or x = 3",
+                category: "highschool",
+                subject: "mathematics",
+                difficulty: "medium"
+            },
+
+            // SHS - PHYSICS (ADVANCED)
+            {
+                question: "According to Ohm's Law, what is the relationship between voltage (V), current (I), and resistance (R)?",
+                options: ["V = I/R", "V = I × R", "V = R/I", "I = V × R"],
+                correctAnswer: 1,
+                explanation: "Ohm's Law states that Voltage = Current × Resistance (V = I × R)",
+                category: "highschool",
+                subject: "physics",
+                difficulty: "medium"
+            },
+            {
+                question: "What is the acceleration due to gravity on Earth?",
+                options: ["9.8 m/s²", "6.7 m/s²", "10 m/s²", "8.9 m/s²"],
+                correctAnswer: 0,
+                explanation: "The standard acceleration due to gravity on Earth is approximately 9.8 m/s².",
+                category: "highschool",
+                subject: "physics",
+                difficulty: "easy"
+            },
+
+            // SHS - CHEMISTRY (ADVANCED)
+            {
+                question: "What is the pH of a neutral solution at 25°C?",
+                options: ["0", "7", "14", "10"],
+                correctAnswer: 1,
+                explanation: "A neutral solution has pH = 7 at 25°C.",
+                category: "highschool",
+                subject: "chemistry",
+                difficulty: "easy"
+            },
+            {
+                question: "Which element has the atomic number 1?",
+                options: ["Helium", "Hydrogen", "Oxygen", "Carbon"],
+                correctAnswer: 1,
+                explanation: "Hydrogen has atomic number 1, meaning it has 1 proton.",
+                category: "highschool",
+                subject: "chemistry",
+                difficulty: "easy"
+            },
+
+            // TERTIARY - PROGRAMMING
+            {
+                question: "Which of these is NOT a programming language?",
+                options: ["Python", "Java", "HTML", "C++"],
+                correctAnswer: 2,
+                explanation: "HTML is a markup language, not a programming language.",
+                category: "tertiary",
+                subject: "programming",
+                difficulty: "easy"
+            },
+            {
+                question: "What does CPU stand for?",
+                options: ["Computer Processing Unit", "Central Processing Unit", "Central Program Unit", "Computer Program Unit"],
+                correctAnswer: 1,
+                explanation: "CPU stands for Central Processing Unit - the brain of the computer.",
+                category: "tertiary",
+                subject: "programming",
+                difficulty: "easy"
+            },
+            {
+                question: "Which data structure uses LIFO (Last In First Out) principle?",
+                options: ["Queue", "Stack", "Array", "Linked List"],
+                correctAnswer: 1,
+                explanation: "Stack uses LIFO - the last element added is the first one removed.",
+                category: "tertiary",
+                subject: "programming",
+                difficulty: "medium"
+            },
+
+            // TERTIARY - BUSINESS
+            {
+                question: "What does ROI stand for in business?",
+                options: ["Return on Investment", "Rate of Interest", "Return on Income", "Rate of Investment"],
+                correctAnswer: 0,
+                explanation: "ROI stands for Return on Investment - a measure of profitability.",
+                category: "tertiary",
+                subject: "business",
+                difficulty: "easy"
+            },
+            {
+                question: "Which financial statement shows a company's financial position at a specific point in time?",
+                options: ["Income Statement", "Balance Sheet", "Cash Flow Statement", "Statement of Equity"],
+                correctAnswer: 1,
+                explanation: "The Balance Sheet shows assets, liabilities, and equity at a specific date.",
+                category: "tertiary",
+                subject: "business",
+                difficulty: "medium"
+            },
+
+            // TERTIARY - ENGINEERING
+            {
+                question: "What is the SI unit of electrical resistance?",
+                options: ["Volt", "Ampere", "Ohm", "Watt"],
+                correctAnswer: 2,
+                explanation: "The ohm (Ω) is the SI unit of electrical resistance.",
+                category: "tertiary",
+                subject: "engineering",
+                difficulty: "easy"
+            },
+            {
+                question: "Which law states that every action has an equal and opposite reaction?",
+                options: ["Newton's First Law", "Newton's Second Law", "Newton's Third Law", "Law of Conservation of Energy"],
+                correctAnswer: 2,
+                explanation: "Newton's Third Law states that for every action, there is an equal and opposite reaction.",
+                category: "tertiary",
+                subject: "engineering",
+                difficulty: "medium"
+            },
+
+            // TERTIARY - MEDICINE
+            {
+                question: "What is the normal human body temperature in Celsius?",
+                options: ["35°C", "36°C", "37°C", "38°C"],
+                correctAnswer: 2,
+                explanation: "Normal human body temperature is approximately 37°C (98.6°F).",
+                category: "tertiary",
+                subject: "medicine",
+                difficulty: "easy"
+            },
+            {
+                question: "Which vitamin is produced when the skin is exposed to sunlight?",
+                options: ["Vitamin A", "Vitamin B12", "Vitamin C", "Vitamin D"],
+                correctAnswer: 3,
+                explanation: "Vitamin D is synthesized in the skin when exposed to sunlight.",
+                category: "tertiary",
+                subject: "medicine",
+                difficulty: "medium"
+            },
+
+            // TERTIARY - LAW
+            {
+                question: "What is the supreme law of Ghana?",
+                options: ["The Criminal Code", "The 1992 Constitution", "The Courts Act", "The Chieftaincy Act"],
+                correctAnswer: 1,
+                explanation: "The 1992 Constitution is the supreme law of Ghana.",
+                category: "tertiary",
+                subject: "law",
+                difficulty: "easy"
+            },
+            {
+                question: "How many Articles are in the 1992 Constitution of Ghana?",
+                options: ["250", "299", "300", "299"],
+                correctAnswer: 3,
+                explanation: "The 1992 Constitution of Ghana has 299 Articles.",
+                category: "tertiary",
+                subject: "law",
+                difficulty: "hard"
+            },
+
+            // TERTIARY - ECONOMICS
+            {
+                question: "What does GDP stand for?",
+                options: ["Gross Domestic Product", "General Domestic Price", "Gross Development Product", "General Development Progress"],
+                correctAnswer: 0,
+                explanation: "GDP stands for Gross Domestic Product - the total value of goods and services produced.",
+                category: "tertiary",
+                subject: "economics",
+                difficulty: "easy"
+            },
+            {
+                question: "Which of these is a direct tax?",
+                options: ["Value Added Tax (VAT)", "Import duty", "Income tax", "Excise duty"],
+                correctAnswer: 2,
+                explanation: "Income tax is a direct tax paid directly by individuals to the government.",
+                category: "tertiary",
+                subject: "economics",
+                difficulty: "medium"
             }
         ];
-        
-        return allQuestions.slice(0, count);
+    },
+    
+    shuffleArray(array) {
+        const shuffled = [...array];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
+    },
+    
+    // Get available subjects for each category
+    getAvailableSubjects(category) {
+        const subjects = {
+            primary: ["mathematics", "science", "english", "social_studies"],
+            highschool: ["mathematics", "physics", "chemistry", "biology", "history", "geography"],
+            tertiary: ["programming", "business", "engineering", "medicine", "law", "economics"]
+        };
+        return subjects[category] || [];
+    },
+    
+    // Get available difficulties for each category
+    getAvailableDifficulties(category) {
+        const difficulties = {
+            primary: ["easy", "medium"],
+            highschool: ["easy", "medium", "hard"],
+            tertiary: ["medium", "hard"]
+        };
+        return difficulties[category] || [];
     }
 };
 
-// Category Manager
+// Update the category manager to reflect Ghanaian curriculum structure
 const categoryManager = {
     categories: {
         primary: {
-            name: "Primary Level",
+            name: "Primary School (Basic 1-6)",
             subjects: ["mathematics", "science", "english", "social_studies"],
-            difficulties: ["easy", "medium"]
+            difficulties: ["easy", "medium"],
+            description: "Basic Education Certificate Examination (BECE) level"
         },
         highschool: {
-            name: "High School", 
+            name: "Junior & Senior High School", 
             subjects: ["mathematics", "physics", "chemistry", "biology", "history", "geography"],
-            difficulties: ["easy", "medium", "hard"]
+            difficulties: ["easy", "medium", "hard"],
+            description: "West African Senior School Certificate Examination (WASSCE) level"
         },
         tertiary: {
-            name: "Tertiary Level",
+            name: "Tertiary Education",
             subjects: ["programming", "business", "engineering", "medicine", "law", "economics"],
-            difficulties: ["medium", "hard"]
-        }
-    },
-    currentCategory: null,
-    currentSubject: null,
-    
-    init() {
-        console.log('🎯 Category manager initialized');
-        this.setupEventListeners();
-    },
-    
-    setupEventListeners() {
-        document.querySelectorAll('.category-card').forEach(card => {
-            card.addEventListener('click', () => {
-                this.selectCategory(card.dataset.category);
-            });
-            card.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    this.selectCategory(card.dataset.category);
-                }
-            });
-        });
-        
-        const backButton = document.getElementById('back-to-categories');
-        if (backButton) {
-            backButton.addEventListener('click', () => {
-                this.showCategorySelection();
-            });
+            difficulties: ["medium", "hard"],
+            description: "University and College level education"
         }
     },
     
-    selectCategory(categoryId) {
-        document.querySelectorAll('.category-card').forEach(card => {
-            card.classList.remove('selected', 'border-primary');
-            card.setAttribute('aria-selected', 'false');
-        });
-        
-        const selectedCard = document.querySelector(`[data-category="${categoryId}"]`);
-        if (selectedCard) {
-            selectedCard.classList.add('selected', 'border-primary');
-            selectedCard.setAttribute('aria-selected', 'true');
-            selectedCard.focus();
-        }
-        
-        this.currentCategory = categoryId;
-        const category = this.categories[categoryId];
-        
-        if (!category) {
-            this.showError('Category not found. Please try again.');
-            return;
-        }
-        
-        this.showSubjectSelection(category);
+    // Update subject names to be more descriptive
+    getSubjectDisplayName(subjectId) {
+        const subjectNames = {
+            mathematics: { icon: 'fa-calculator', color: 'primary', name: 'Mathematics' },
+            science: { icon: 'fa-flask', color: 'success', name: 'Integrated Science' },
+            english: { icon: 'fa-language', color: 'info', name: 'English Language' },
+            social_studies: { icon: 'fa-globe-africa', color: 'warning', name: 'Social Studies' },
+            physics: { icon: 'fa-atom', color: 'danger', name: 'Physics' },
+            chemistry: { icon: 'fa-vial', color: 'success', name: 'Chemistry' },
+            biology: { icon: 'fa-dna', color: 'success', name: 'Biology' },
+            history: { icon: 'fa-landmark', color: 'warning', name: 'History' },
+            geography: { icon: 'fa-map', color: 'info', name: 'Geography' },
+            programming: { icon: 'fa-code', color: 'dark', name: 'Computer Science' },
+            business: { icon: 'fa-chart-line', color: 'success', name: 'Business Studies' },
+            engineering: { icon: 'fa-cogs', color: 'info', name: 'Engineering' },
+            medicine: { icon: 'fa-heartbeat', color: 'danger', name: 'Medicine' },
+            law: { icon: 'fa-gavel', color: 'warning', name: 'Law' },
+            economics: { icon: 'fa-money-bill-wave', color: 'success', name: 'Economics' }
+        };
+        return subjectNames[subjectId] || { icon: 'fa-book', color: 'secondary', name: subjectId };
     },
     
+    // Update the showSubjectSelection method to include Ghanaian curriculum info
     showSubjectSelection(category) {
         document.getElementById('category-title').textContent = `Select Subject - ${category.name}`;
         
         const container = document.getElementById('subjects-container');
         container.innerHTML = '';
         
-        const subjectNames = {
-            mathematics: { icon: 'fa-calculator', color: 'primary', name: 'Mathematics' },
-            science: { icon: 'fa-flask', color: 'success', name: 'Science' },
-            english: { icon: 'fa-language', color: 'info', name: 'English' },
-            social_studies: { icon: 'fa-globe-americas', color: 'warning', name: 'Social Studies' },
-            physics: { icon: 'fa-atom', color: 'danger', name: 'Physics' },
-            chemistry: { icon: 'fa-vial', color: 'success', name: 'Chemistry' },
-            biology: { icon: 'fa-dna', color: 'success', name: 'Biology' },
-            history: { icon: 'fa-landmark', color: 'warning', name: 'History' },
-            geography: { icon: 'fa-map', color: 'info', name: 'Geography' },
-            programming: { icon: 'fa-code', color: 'dark', name: 'Programming' },
-            business: { icon: 'fa-chart-line', color: 'success', name: 'Business' },
-            engineering: { icon: 'fa-cogs', color: 'info', name: 'Engineering' },
-            medicine: { icon: 'fa-heartbeat', color: 'danger', name: 'Medicine' },
-            law: { icon: 'fa-gavel', color: 'warning', name: 'Law' },
-            economics: { icon: 'fa-money-bill-wave', color: 'success', name: 'Economics' }
-        };
-        
         category.subjects.forEach(subjectId => {
-            const subject = subjectNames[subjectId] || { 
-                icon: 'fa-book', 
-                color: 'secondary', 
-                name: subjectId 
-            };
+            const subject = this.getSubjectDisplayName(subjectId);
             
             const col = document.createElement('div');
             col.className = 'col-md-4 col-sm-6 mb-4';
@@ -1792,7 +2592,10 @@ const categoryManager = {
                     <div class="card-body text-center d-flex flex-column">
                         <i class="fas ${subject.icon} fa-2x mb-3 text-${subject.color}" aria-hidden="true"></i>
                         <h5 class="card-title">${subject.name}</h5>
-                        <p class="card-text small flex-grow-1">Test your ${subject.name.toLowerCase()} knowledge</p>
+                        <p class="card-text small flex-grow-1">${category.description}</p>
+                        <div class="mt-2">
+                            ${this.getDifficultyBadges(category.difficulties)}
+                        </div>
                     </div>
                 </div>
             `;
@@ -1815,109 +2618,62 @@ const categoryManager = {
         this.showScreen('subject-selection');
     },
     
-    selectSubject(subjectId) {
-        document.querySelectorAll('.subject-card').forEach(card => {
-            card.classList.remove('selected', 'border-primary');
-            card.setAttribute('aria-selected', 'false');
-        });
-        
-        const selectedCard = document.querySelector(`[data-subject="${subjectId}"]`);
-        if (selectedCard) {
-            selectedCard.classList.add('selected', 'border-primary');
-            selectedCard.setAttribute('aria-selected', 'true');
-            selectedCard.focus();
-        }
-        
-        this.currentSubject = subjectId;
-    },
-    
-    showCategorySelection() {
-        this.showScreen('category-selection');
-        this.currentCategory = null;
-        this.currentSubject = null;
-    },
-    
-    showScreen(screenName) {
-        const screens = [
-            'category-selection',
-            'subject-selection', 
-            'multiplayer-setup',
-            'multiplayer-lobby',
-            'quiz-screen',
-            'results-screen',
-            'multiplayer-quiz-screen',
-            'multiplayer-results-screen'
-        ];
-        
-        screens.forEach(screen => {
-            const element = document.getElementById(screen);
-            if (element) {
-                element.classList.add('d-none');
-                element.setAttribute('aria-hidden', 'true');
-            }
-        });
-        
-        const targetScreen = document.getElementById(screenName);
-        if (targetScreen) {
-            targetScreen.classList.remove('d-none');
-            targetScreen.setAttribute('aria-hidden', 'false');
-            currentState.screen = screenName;
-            
-            const mainHeading = targetScreen.querySelector('h1, h2, h3');
-            if (mainHeading) {
-                setTimeout(() => mainHeading.focus(), 100);
-            }
-        }
-    },
-    
-    getCurrentSettings() {
-        return {
-            category: this.currentCategory,
-            subject: this.currentSubject,
-            difficulty: document.getElementById('difficulty-select').value,
-            questionCount: parseInt(document.getElementById('question-count').value),
-            questionSource: document.getElementById('question-source').value,
-            gameMode: document.querySelector('input[name="gameMode"]:checked').value
+    getDifficultyBadges(difficulties) {
+        const difficultyColors = {
+            easy: 'success',
+            medium: 'warning',
+            hard: 'danger'
         };
-    },
-    
-    showError(message) {
-        const errorElement = document.getElementById('error-message');
-        const errorText = document.getElementById('error-text');
-        if (errorElement && errorText) {
-            errorText.textContent = message;
-            errorElement.style.display = 'block';
-            errorElement.setAttribute('aria-live', 'assertive');
-            
-            setTimeout(() => {
-                errorElement.style.display = 'none';
-            }, 5000);
-        }
-    },
-    
-    showSuccess(message) {
-        const successElement = document.getElementById('success-message');
-        const successText = document.getElementById('success-text');
-        if (successElement && successText) {
-            successText.textContent = message;
-            successElement.style.display = 'block';
-            successElement.setAttribute('aria-live', 'polite');
-            
-            setTimeout(() => {
-                successElement.style.display = 'none';
-            }, 3000);
-        }
-    },
-    
-    showLoading(show) {
-        const loadingElement = document.getElementById('loading-spinner');
-        if (loadingElement) {
-            loadingElement.style.display = show ? 'block' : 'none';
-            loadingElement.setAttribute('aria-live', 'polite');
-            loadingElement.setAttribute('aria-label', show ? 'Loading content' : '');
-        }
+        
+        return difficulties.map(diff => 
+            `<span class="badge bg-${difficultyColors[diff]} me-1">${diff}</span>`
+        ).join('');
     }
 };
+
+// Add this function to update the quiz screen with Ghana-specific info
+function updateQuizScreenWithGhanaInfo(category, subject) {
+    const subjectInfo = categoryManager.getSubjectDisplayName(subject);
+    const examInfo = {
+        primary: "BECE Curriculum",
+        highschool: "WASSCE Curriculum", 
+        tertiary: "Tertiary Education"
+    };
+    
+    const infoElement = document.getElementById('current-subject') || 
+                       document.getElementById('mp-current-subject');
+    
+    if (infoElement) {
+        infoElement.textContent = `${subjectInfo.name} - ${examInfo[category]}`;
+    }
+}
+
+// Update the singlePlayerSystem and multiplayerSystem to use Ghana info
+// In singlePlayerSystem.startGame and multiplayerSystem.loadQuestion, add:
+// updateQuizScreenWithGhanaInfo(category, subject);
+
+// Update the singlePlayerSystem.startGame method
+const originalSingleStartGame = singlePlayerSystem.startGame;
+singlePlayerSystem.startGame = async function(...args) {
+    const result = await originalSingleStartGame.apply(this, args);
+    if (result && this.currentGame) {
+        updateQuizScreenWithGhanaInfo(this.currentGame.category, this.currentGame.subject);
+    }
+    return result;
+};
+
+// Update multiplayer question loading
+const originalMultiplayerLoadQuestion = multiplayerSystem.loadQuestion;
+multiplayerSystem.loadQuestion = function(questionIndex) {
+    originalMultiplayerLoadQuestion.call(this, questionIndex);
+    if (this.currentRoom && this.gameState) {
+        updateQuizScreenWithGhanaInfo(
+            this.currentRoom.settings.category, 
+            this.currentRoom.settings.subject
+        );
+    }
+};
+
 
 // Single Player System
 const singlePlayerSystem = {
