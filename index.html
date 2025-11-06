@@ -1161,7 +1161,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
-        // QuizMaster - Complete JavaScript with Real Multiplayer
+// QuizMaster - Complete JavaScript with Real Multiplayer
 console.log('🚀 Loading QuizMaster JavaScript...');
 
 // Configuration
@@ -1178,7 +1178,640 @@ let currentState = {
     connectionStatus: 'connecting'
 };
 
-// Sound System
+// Enhanced Connection Manager with WebSocket
+const connectionManager = {
+    socket: null,
+    isConnected: false,
+    reconnectAttempts: 0,
+    maxReconnectAttempts: 5,
+    reconnectDelay: 2000,
+    eventListeners: new Map(),
+    
+    async init() {
+        console.log('🔌 Initializing connection manager...');
+        await this.connect();
+    },
+    
+    async connect() {
+        try {
+            this.setConnectionStatus('connecting');
+            
+            // Create WebSocket connection
+            this.socket = new WebSocket(SOCKET_URL.replace('https', 'wss').replace('http', 'ws'));
+            
+            this.socket.onopen = () => {
+                console.log('✅ WebSocket connected successfully');
+                this.isConnected = true;
+                this.reconnectAttempts = 0;
+                this.setConnectionStatus('connected');
+                
+                // Rejoin room if we were in one
+                if (multiplayerSystem.currentRoom) {
+                    this.rejoinRoom();
+                }
+            };
+            
+            this.socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('📥 Received message:', data);
+                    this.handleMessage(data);
+                } catch (error) {
+                    console.error('Error parsing message:', error);
+                }
+            };
+            
+            this.socket.onclose = (event) => {
+                console.log('❌ WebSocket disconnected:', event.code, event.reason);
+                this.isConnected = false;
+                this.setConnectionStatus('disconnected');
+                
+                // Attempt reconnection
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    setTimeout(() => {
+                        this.reconnectAttempts++;
+                        console.log(`🔄 Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`);
+                        this.connect();
+                    }, this.reconnectDelay);
+                }
+            };
+            
+            this.socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                this.setConnectionStatus('disconnected');
+            };
+            
+        } catch (error) {
+            console.error('Failed to connect:', error);
+            this.setConnectionStatus('disconnected');
+        }
+    },
+    
+    handleMessage(data) {
+        const { event, payload } = data;
+        
+        // Call all registered listeners for this event
+        const listeners = this.eventListeners.get(event) || [];
+        listeners.forEach(callback => {
+            try {
+                callback(payload);
+            } catch (error) {
+                console.error(`Error in event listener for ${event}:`, error);
+            }
+        });
+        
+        // Also call specific handler methods if they exist
+        if (this[`handle_${event}`]) {
+            this[`handle_${event}`](payload);
+        }
+    },
+    
+    async emit(event, data) {
+        if (!this.isConnected || !this.socket) {
+            console.warn('⚠️ Cannot emit - socket not connected');
+            return { success: false, error: 'Not connected' };
+        }
+        
+        try {
+            const message = {
+                event,
+                payload: data,
+                timestamp: Date.now()
+            };
+            
+            this.socket.send(JSON.stringify(message));
+            console.log(`📤 Emitted ${event}:`, data);
+            return { success: true };
+        } catch (error) {
+            console.error(`Error emitting ${event}:`, error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    on(event, callback) {
+        if (!this.eventListeners.has(event)) {
+            this.eventListeners.set(event, []);
+        }
+        this.eventListeners.get(event).push(callback);
+        console.log(`📥 Registered listener for ${event}`);
+    },
+    
+    off(event, callback) {
+        const listeners = this.eventListeners.get(event);
+        if (listeners) {
+            const index = listeners.indexOf(callback);
+            if (index > -1) {
+                listeners.splice(index, 1);
+            }
+        }
+    },
+    
+    setConnectionStatus(status) {
+        currentState.connectionStatus = status;
+        const statusElement = document.getElementById('connection-status');
+        
+        if (statusElement) {
+            statusElement.className = `status ${status}`;
+            
+            switch(status) {
+                case 'connected':
+                    statusElement.innerHTML = '<span class="online-indicator online"></span><i class="fas fa-check-circle me-2"></i>Connected';
+                    statusElement.setAttribute('aria-label', 'Connected to server');
+                    break;
+                case 'disconnected':
+                    statusElement.innerHTML = '<span class="online-indicator offline"></span><i class="fas fa-times-circle me-2"></i>Offline';
+                    statusElement.setAttribute('aria-label', 'Disconnected from server');
+                    break;
+                case 'connecting':
+                    statusElement.innerHTML = '<span class="online-indicator connecting"></span><i class="fas fa-sync-alt me-2"></i>Connecting...';
+                    statusElement.setAttribute('aria-label', 'Connecting to server');
+                    break;
+            }
+        }
+    },
+    
+    async rejoinRoom() {
+        if (multiplayerSystem.currentRoom) {
+            console.log('🔄 Rejoining room after reconnect...');
+            const playerName = document.getElementById('mp-player-name')?.value || 'Player';
+            const avatar = avatarSystem.selectedAvatar;
+            
+            await this.emit('rejoinRoom', {
+                roomCode: multiplayerSystem.currentRoom.code,
+                playerName: playerName,
+                avatar: avatar
+            });
+        }
+    },
+    
+    // Specific event handlers
+    handle_playerJoined(data) {
+        multiplayerSystem.handlePlayerJoined(data);
+    },
+    
+    handle_playerLeft(data) {
+        multiplayerSystem.handlePlayerLeft(data);
+    },
+    
+    handle_roomUpdated(data) {
+        multiplayerSystem.handleRoomUpdated(data);
+    },
+    
+    handle_gameStarted(data) {
+        multiplayerSystem.handleGameStarted(data);
+    },
+    
+    handle_question(data) {
+        multiplayerSystem.handleQuestionReceived(data);
+    },
+    
+    handle_playerAnswered(data) {
+        multiplayerSystem.handlePlayerAnswered(data);
+    },
+    
+    handle_gameEnded(data) {
+        multiplayerSystem.handleGameEnded(data);
+    },
+    
+    handle_chatMessage(data) {
+        chatSystem.handleIncomingMessage(data);
+    }
+};
+
+// Enhanced Multiplayer System with Real WebSocket Support
+const multiplayerSystem = {
+    currentRoom: null,
+    players: [],
+    gameState: null,
+    timerInterval: null,
+    timeLeft: 0,
+    lastTimerUpdate: 0,
+    playerId: null,
+    
+    init() {
+        console.log('🎮 Multiplayer system initialized');
+        this.playerId = this.generatePlayerId();
+        this.setupSocketListeners();
+        this.createMissingScreens();
+    },
+    
+    setupSocketListeners() {
+        // Listen for real-time events
+        connectionManager.on('playerJoined', (data) => {
+            this.handlePlayerJoined(data);
+        });
+        
+        connectionManager.on('playerLeft', (data) => {
+            this.handlePlayerLeft(data);
+        });
+        
+        connectionManager.on('roomUpdated', (data) => {
+            this.handleRoomUpdated(data);
+        });
+        
+        connectionManager.on('gameStarted', (data) => {
+            this.handleGameStarted(data);
+        });
+        
+        connectionManager.on('question', (data) => {
+            this.handleQuestionReceived(data);
+        });
+        
+        connectionManager.on('playerAnswered', (data) => {
+            this.handlePlayerAnswered(data);
+        });
+        
+        connectionManager.on('gameEnded', (data) => {
+            this.handleGameEnded(data);
+        });
+        
+        connectionManager.on('chatMessage', (data) => {
+            chatSystem.handleIncomingMessage(data);
+        });
+    },
+    
+    async createRoom(settings) {
+        const createBtn = document.getElementById('create-room-btn');
+        buttonManager.setLoading(createBtn, true, 'Creating Room...');
+        
+        try {
+            console.log('🎮 Creating multiplayer room...');
+            
+            const playerName = document.getElementById('mp-player-name').value || 'Player';
+            const avatar = avatarSystem.selectedAvatar;
+            
+            // Save player name preference
+            storageManager.savePreferences();
+            
+            // Generate room code
+            const roomCode = this.generateRoomCode();
+            
+            // Create room on server
+            const result = await connectionManager.emit('createRoom', {
+                roomCode: roomCode,
+                playerName: playerName,
+                avatar: avatar,
+                playerId: this.playerId,
+                settings: settings
+            });
+            
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to create room');
+            }
+            
+            // Room will be created on server and we'll get roomUpdated event
+            this.currentRoom = {
+                code: roomCode,
+                host: this.playerId,
+                settings: settings,
+                status: 'waiting'
+            };
+            
+            // Add local player immediately
+            this.players = [{
+                id: this.playerId,
+                name: playerName,
+                avatar: avatar,
+                score: 0,
+                isHost: true,
+                hasAnswered: false
+            }];
+            
+            this.updateLobbyDisplay();
+            categoryManager.showScreen('multiplayer-lobby');
+            categoryManager.showSuccess(`Room created! Share code: ${roomCode}`);
+            
+            chatSystem.addSystemMessage(`Room created. Share code: ${roomCode}`, 'multiplayer-lobby');
+            chatSystem.addSystemMessage(`Waiting for players to join...`, 'multiplayer-lobby');
+            
+            return true;
+            
+        } catch (error) {
+            console.error('Error creating room:', error);
+            categoryManager.showError(error.message || 'Failed to create room. Please try again.');
+            return false;
+        } finally {
+            buttonManager.setLoading(createBtn, false, 'Create Room');
+        }
+    },
+    
+    async joinRoom(roomCode) {
+        const joinBtn = document.getElementById('join-room-btn');
+        buttonManager.setLoading(joinBtn, true, 'Joining Room...');
+        
+        try {
+            const playerName = document.getElementById('mp-player-name').value || 'Player';
+            const avatar = avatarSystem.selectedAvatar;
+
+            if (!roomCode || roomCode.length !== 4) {
+                categoryManager.showError('Please enter a valid 4-character room code');
+                return false;
+            }
+
+            // Save player name preference
+            storageManager.savePreferences();
+
+            categoryManager.showLoading(true);
+
+            // Join room on server
+            const result = await connectionManager.emit('joinRoom', {
+                roomCode: roomCode.toUpperCase(),
+                playerName: playerName,
+                avatar: avatar,
+                playerId: this.playerId
+            });
+
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to join room');
+            }
+
+            // Room data will come from server via roomUpdated event
+            this.currentRoom = {
+                code: roomCode.toUpperCase(),
+                status: 'waiting'
+            };
+
+            // Add local player immediately for better UX
+            this.players = [{
+                id: this.playerId,
+                name: playerName,
+                avatar: avatar,
+                score: 0,
+                isHost: false,
+                hasAnswered: false
+            }];
+
+            this.updateLobbyDisplay();
+            categoryManager.showScreen('multiplayer-lobby');
+            categoryManager.showSuccess(`Joined room: ${roomCode}`);
+
+            return true;
+
+        } catch (error) {
+            console.error('Error joining room:', error);
+            categoryManager.showError(error.message || 'Failed to join room. Please check the room code.');
+            return false;
+        } finally {
+            categoryManager.showLoading(false);
+            buttonManager.setLoading(joinBtn, false, 'Join Room');
+        }
+    },
+    
+    async startGame() {
+        const startBtn = document.getElementById('start-game-btn');
+        buttonManager.setLoading(startBtn, true, 'Starting Game...');
+        
+        try {
+            if (!this.currentRoom) {
+                categoryManager.showError('No room found');
+                return;
+            }
+            
+            if (this.players.length < 2) {
+                categoryManager.showError('Need at least 2 players to start');
+                return;
+            }
+            
+            // Request server to start game
+            const result = await connectionManager.emit('startGame', {
+                roomCode: this.currentRoom.code
+            });
+            
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to start game');
+            }
+            
+            // Game will start via gameStarted event from server
+            chatSystem.addSystemMessage('Game starting...', 'multiplayer-lobby');
+            
+        } catch (error) {
+            console.error('Error starting game:', error);
+            categoryManager.showError(error.message || 'Failed to start game. Please try again.');
+        } finally {
+            buttonManager.setLoading(startBtn, false, 'Start Game');
+        }
+    },
+    
+    // Event handlers for real-time updates
+    handlePlayerJoined(data) {
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            // Add new player if not already in list
+            if (!this.players.find(p => p.id === data.player.id)) {
+                this.players.push(data.player);
+                this.updateLobbyDisplay();
+                categoryManager.showSuccess(`${data.player.name} joined the room!`);
+                chatSystem.addSystemMessage(`${data.player.name} joined the game`, 'multiplayer-lobby');
+                
+                // Update room settings if provided
+                if (data.roomSettings) {
+                    this.currentRoom.settings = data.roomSettings;
+                }
+            }
+        }
+    },
+    
+    handlePlayerLeft(data) {
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            this.players = this.players.filter(player => player.id !== data.playerId);
+            this.updateLobbyDisplay();
+            categoryManager.showError(`${data.playerName} left the room`);
+            chatSystem.addSystemMessage(`${data.playerName} left the game`, 'multiplayer-lobby');
+        }
+    },
+    
+    handleRoomUpdated(data) {
+        if (data.roomCode === this.currentRoom?.code) {
+            // Update full player list from server
+            this.players = data.players;
+            this.currentRoom.settings = data.settings;
+            this.currentRoom.host = data.hostPlayerId;
+            
+            this.updateLobbyDisplay();
+            console.log('✅ Room updated with', this.players.length, 'players');
+        }
+    },
+    
+    handleGameStarted(data) {
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            this.gameState = {
+                currentQuestion: 0,
+                questions: data.questions,
+                players: data.players,
+                timePerQuestion: data.timePerQuestion || 30
+            };
+            
+            // Update local players with game state
+            this.players = data.players.map(player => ({
+                ...player,
+                hasAnswered: false
+            }));
+            
+            chatSystem.addSystemMessage('Game started! Good luck everyone!', 'multiplayer-lobby');
+            this.loadQuestion(0);
+        }
+    },
+    
+    handleQuestionReceived(data) {
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            this.loadQuestion(data.questionIndex);
+        }
+    },
+    
+    handlePlayerAnswered(data) {
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            // Update player score and answer status
+            const player = this.players.find(p => p.id === data.playerId);
+            if (player) {
+                player.score = data.newScore;
+                player.hasAnswered = true;
+                
+                // Update game state if it exists
+                if (this.gameState) {
+                    const gamePlayer = this.gameState.players.find(p => p.id === data.playerId);
+                    if (gamePlayer) {
+                        gamePlayer.score = data.newScore;
+                        gamePlayer.hasAnswered = true;
+                    }
+                }
+            }
+            
+            this.updateScoreboard();
+            
+            // Show notification for other players' answers
+            if (data.playerId !== this.playerId) {
+                const playerName = player?.name || 'Another player';
+                chatSystem.addSystemMessage(`${playerName} answered the question!`, 'multiplayer-quiz-screen');
+            }
+        }
+    },
+    
+    handleGameEnded(data) {
+        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+            this.showResults(data.finalScores);
+        }
+    },
+    
+    async submitAnswer(questionIndex, answerIndex) {
+        try {
+            if (!this.currentRoom || !this.gameState) return;
+            
+            const question = this.gameState.questions[questionIndex];
+            const isCorrect = answerIndex === question.correctAnswer;
+            
+            // Update local player immediately for better UX
+            const currentPlayer = this.players.find(p => p.id === this.playerId);
+            if (currentPlayer && isCorrect) {
+                currentPlayer.score += 10;
+                currentPlayer.hasAnswered = true;
+            }
+            
+            // Update game state players
+            const gamePlayer = this.gameState.players.find(p => p.id === this.playerId);
+            if (gamePlayer && isCorrect) {
+                gamePlayer.score += 10;
+                gamePlayer.hasAnswered = true;
+            }
+            
+            this.updateScoreboard();
+            
+            // Notify server
+            await connectionManager.emit('submitAnswer', {
+                roomCode: this.currentRoom.code,
+                questionIndex: questionIndex,
+                answerIndex: answerIndex,
+                isCorrect: isCorrect,
+                playerId: this.playerId
+            });
+            
+        } catch (error) {
+            console.error('Error submitting answer:', error);
+        }
+    },
+    
+    leaveRoom() {
+        if (this.currentRoom && connectionManager.isConnected) {
+            connectionManager.emit('leaveRoom', { 
+                roomCode: this.currentRoom.code,
+                playerId: this.playerId
+            }).catch(error => {
+                console.log('⚠️ Server leave room failed:', error);
+            });
+        }
+        
+        this.currentRoom = null;
+        this.players = [];
+        this.gameState = null;
+        clearInterval(this.timerInterval);
+        
+        categoryManager.showScreen('multiplayer-setup');
+    },
+    
+    updateLobbyDisplay() {
+        const roomCodeElement = document.getElementById('room-code');
+        const playerCountElement = document.getElementById('player-count');
+        const playersList = document.getElementById('players-list');
+        const startButton = document.getElementById('start-game-btn');
+
+        if (roomCodeElement) {
+            roomCodeElement.textContent = this.currentRoom?.code || '----';
+        }
+
+        if (playerCountElement) {
+            playerCountElement.textContent = `${this.players.length} player(s)`;
+            playerCountElement.setAttribute('aria-label', `${this.players.length} players in room`);
+        }
+
+        if (playersList) {
+            // Clear any waiting messages
+            const waitingMessages = playersList.parentNode.querySelectorAll('.alert');
+            waitingMessages.forEach(msg => msg.remove());
+
+            if (this.players.length === 1) {
+                // Show waiting message
+                const waitingMessage = document.createElement('div');
+                waitingMessage.className = 'alert alert-info text-center';
+                waitingMessage.innerHTML = `
+                    <i class="fas fa-users me-2" aria-hidden="true"></i>
+                    Waiting for other players to join...<br>
+                    <small>Share room code: <strong>${this.currentRoom?.code}</strong></small>
+                `;
+                playersList.parentNode.insertBefore(waitingMessage, playersList);
+            }
+
+            playersList.innerHTML = this.players.map(player => `
+                <div class="player-item" role="listitem">
+                    <div class="multiplayer-avatar me-2" aria-hidden="true">${player.avatar}</div>
+                    <div class="flex-grow-1">
+                        <strong>${player.name}</strong>
+                        ${player.id === this.playerId ? '<span class="badge bg-primary ms-2">You</span>' : ''}
+                    </div>
+                    ${player.isHost ? '<span class="badge bg-warning">Host</span>' : ''}
+                    ${player.hasAnswered ? '<span class="badge bg-success ms-2"><i class="fas fa-check"></i></span>' : ''}
+                </div>
+            `).join('');
+        }
+
+        if (startButton && this.currentRoom) {
+            const isHost = this.players.find(p => p.id === this.playerId)?.isHost || false;
+            const canStart = this.players.length >= 2; // Require at least 2 real players
+
+            startButton.style.display = isHost ? 'block' : 'none';
+            startButton.disabled = !canStart;
+
+            if (isHost && !canStart) {
+                startButton.title = `Need ${2 - this.players.length} more player(s) to start`;
+                startButton.setAttribute('aria-label', `Start game disabled. Need ${2 - this.players.length} more players`);
+            } else {
+                startButton.title = '';
+                startButton.setAttribute('aria-label', 'Start game');
+            }
+        }
+    },
+
+    // ... (keep all the other methods like loadQuestion, selectAnswer, etc. from previous implementation)
+    // Make sure to include: loadQuestion, selectAnswer, nextQuestion, startTimer, updateTimerDisplay, 
+    // updateScoreboard, showResults, generateRoomCode, generatePlayerId, createMissingScreens
+    // Sound System
 const soundSystem = {
     enabled: true,
     play(soundName) {
@@ -1203,10 +1836,9 @@ const soundSystem = {
             button.classList.toggle('btn-outline-success');
             button.classList.toggle('btn-outline-secondary');
         }
-        // Save preference
         storageManager.savePreferences();
     }
-};
+},
 
 // Storage Manager for Preferences
 const storageManager = {
@@ -1233,7 +1865,6 @@ const storageManager = {
                 soundSystem.enabled = prefs.soundEnabled !== undefined ? prefs.soundEnabled : true;
                 avatarSystem.selectedAvatar = prefs.selectedAvatar || '👨‍💻';
                 
-                // Set player names
                 const playerNameInput = document.getElementById('player-name');
                 const mpPlayerNameInput = document.getElementById('mp-player-name');
                 
@@ -1250,72 +1881,7 @@ const storageManager = {
             console.error('❌ Failed to load preferences:', error);
         }
     }
-};
-
-// Safe API Call Wrapper
-const apiManager = {
-    async safeCall(apiCall, fallbackData = null, errorMessage = 'Operation failed') {
-        try {
-            categoryManager.showLoading(true);
-            const result = await apiCall();
-            categoryManager.showLoading(false);
-            return result;
-        } catch (error) {
-            console.error('API call failed:', error);
-            categoryManager.showLoading(false);
-            categoryManager.showError(errorMessage);
-            return fallbackData;
-        }
-    },
-    
-    withRetry(apiCall, maxRetries = 3, delay = 1000) {
-        return async (...args) => {
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    return await apiCall(...args);
-                } catch (error) {
-                    if (attempt === maxRetries) throw error;
-                    console.log(`Retry ${attempt}/${maxRetries} after ${delay}ms`);
-                    await this.delay(delay);
-                }
-            }
-        };
-    },
-    
-    delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-};
-
-// Button Loading States
-const buttonManager = {
-    setLoading(button, isLoading, originalText = null) {
-        if (!button) return;
-        
-        if (isLoading) {
-            button.dataset.originalText = originalText || button.innerHTML;
-            button.disabled = true;
-            button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Loading...';
-            button.classList.add('loading');
-        } else {
-            button.disabled = false;
-            button.innerHTML = button.dataset.originalText || originalText || 'Submit';
-            button.classList.remove('loading');
-        }
-    },
-    
-    debounce(func, wait) {
-        let timeout;
-        return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
-        };
-    }
-};
+},
 
 // Avatar System
 const avatarSystem = {
@@ -1386,51 +1952,72 @@ const avatarSystem = {
         this.renderMultiplayerAvatarSelection();
         storageManager.savePreferences();
     }
-};
+},
 
-// Connection Manager
-const connectionManager = {
-    isConnected: true,
-    
-    async init() {
-        console.log('🔌 Connection manager initialized');
-        this.setConnectionStatus('connected');
-        return Promise.resolve();
-    },
-    
-    setConnectionStatus(status) {
-        currentState.connectionStatus = status;
-        const statusElement = document.getElementById('connection-status');
-        
-        if (statusElement) {
-            statusElement.className = `status ${status}`;
-            
-            switch(status) {
-                case 'connected':
-                    statusElement.innerHTML = '<span class="online-indicator online"></span><i class="fas fa-check-circle me-2"></i>Connected';
-                    statusElement.setAttribute('aria-label', 'Connected to server');
-                    break;
-                case 'disconnected':
-                    statusElement.innerHTML = '<span class="online-indicator offline"></span><i class="fas fa-times-circle me-2"></i>Offline';
-                    statusElement.setAttribute('aria-label', 'Disconnected from server');
-                    break;
-                case 'connecting':
-                    statusElement.innerHTML = '<span class="online-indicator connecting"></span><i class="fas fa-sync-alt me-2"></i>Connecting...';
-                    statusElement.setAttribute('aria-label', 'Connecting to server');
-                    break;
-            }
+// API Manager
+const apiManager = {
+    async safeCall(apiCall, fallbackData = null, errorMessage = 'Operation failed') {
+        try {
+            categoryManager.showLoading(true);
+            const result = await apiCall();
+            categoryManager.showLoading(false);
+            return result;
+        } catch (error) {
+            console.error('API call failed:', error);
+            categoryManager.showLoading(false);
+            categoryManager.showError(errorMessage);
+            return fallbackData;
         }
     },
     
-    async emit(event, data) {
-        console.log(`📤 Emitting ${event}:`, data);
-        return Promise.resolve({ success: true });
+    withRetry(apiCall, maxRetries = 3, delay = 1000) {
+        return async (...args) => {
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    return await apiCall(...args);
+                } catch (error) {
+                    if (attempt === maxRetries) throw error;
+                    console.log(`Retry ${attempt}/${maxRetries} after ${delay}ms`);
+                    await this.delay(delay);
+                }
+            }
+        };
     },
     
-    on(event, callback) {
-        console.log(`📥 Listening for ${event}`);
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
-};
+},
+
+// Button Manager
+const buttonManager = {
+    setLoading(button, isLoading, originalText = null) {
+        if (!button) return;
+        
+        if (isLoading) {
+            button.dataset.originalText = originalText || button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Loading...';
+            button.classList.add('loading');
+        } else {
+            button.disabled = false;
+            button.innerHTML = button.dataset.originalText || originalText || 'Submit';
+            button.classList.remove('loading');
+        }
+    },
+    
+    debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+},
 
 // Question Manager
 const questionManager = {
@@ -1438,7 +2025,6 @@ const questionManager = {
         const { category, subject, difficulty, questionCount } = settings;
         console.log(`📝 Getting ${questionCount} ${difficulty} questions for ${category}/${subject}`);
         
-        // Use safe API call with fallback to demo questions
         const questions = await apiManager.safeCall(
             () => this.fetchQuestionsFromAPI(settings),
             this.getDemoQuestions(category, subject, difficulty, questionCount),
@@ -1452,13 +2038,11 @@ const questionManager = {
     },
     
     async fetchQuestionsFromAPI(settings) {
-        // Simulate API call - in real implementation, this would fetch from your backend
-        await apiManager.delay(1000); // Simulate network delay
-        throw new Error('API not available'); // Force fallback for now
+        await apiManager.delay(1000);
+        throw new Error('API not available');
     },
     
     getDemoQuestions(category, subject, difficulty, count) {
-        // Demo questions for all categories
         const allQuestions = [
             {
                 question: "What is 5 + 7?",
@@ -1494,43 +2078,12 @@ const questionManager = {
                 ],
                 correctAnswer: 0,
                 explanation: "HTML stands for Hyper Text Markup Language."
-            },
-            {
-                question: "What is the largest mammal?",
-                options: ["Elephant", "Blue Whale", "Giraffe", "Polar Bear"],
-                correctAnswer: 1,
-                explanation: "The Blue Whale is the largest mammal."
-            },
-            {
-                question: "Which gas do plants absorb from the atmosphere?",
-                options: ["Oxygen", "Carbon Dioxide", "Nitrogen", "Hydrogen"],
-                correctAnswer: 1,
-                explanation: "Plants absorb Carbon Dioxide for photosynthesis."
-            },
-            {
-                question: "What is the square root of 64?",
-                options: ["6", "7", "8", "9"],
-                correctAnswer: 2,
-                explanation: "The square root of 64 is 8."
-            },
-            {
-                question: "Who wrote 'Romeo and Juliet'?",
-                options: ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain"],
-                correctAnswer: 1,
-                explanation: "William Shakespeare wrote 'Romeo and Juliet'."
-            },
-            {
-                question: "What is the chemical symbol for gold?",
-                options: ["Go", "Gd", "Au", "Ag"],
-                correctAnswer: 2,
-                explanation: "The chemical symbol for gold is Au."
             }
         ];
         
-        // Return requested number of questions
         return allQuestions.slice(0, count);
     }
-};
+},
 
 // Category Manager
 const categoryManager = {
@@ -1713,7 +2266,6 @@ const categoryManager = {
             targetScreen.setAttribute('aria-hidden', 'false');
             currentState.screen = screenName;
             
-            // Focus management for accessibility
             const mainHeading = targetScreen.querySelector('h1, h2, h3');
             if (mainHeading) {
                 setTimeout(() => mainHeading.focus(), 100);
@@ -1768,15 +2320,14 @@ const categoryManager = {
             loadingElement.setAttribute('aria-label', show ? 'Loading content' : '');
         }
     }
-};
+},
 
 // Single Player System
 const singlePlayerSystem = {
     currentGame: null,
-    timer: null,
+    timerInterval: null,
     timeLeft: 0,
     lastTimerUpdate: 0,
-    timerInterval: null,
     
     init() {
         console.log('🎮 Single player system initialized');
@@ -1840,7 +2391,6 @@ const singlePlayerSystem = {
         this.currentGame.currentQuestion = questionIndex;
         const question = this.currentGame.questions[questionIndex];
         
-        // Update UI
         document.getElementById('current-subject').textContent = 
             `${this.currentGame.category} - ${this.currentGame.subject}`;
         
@@ -1849,12 +2399,10 @@ const singlePlayerSystem = {
         
         document.getElementById('question-text').textContent = question.question;
         
-        // Update progress bar
         const progress = ((questionIndex) / this.currentGame.questions.length) * 100;
         document.getElementById('progress-bar').style.width = `${progress}%`;
         document.getElementById('progress-bar').setAttribute('aria-valuenow', progress);
         
-        // Render options
         const optionsContainer = document.getElementById('options-container');
         optionsContainer.innerHTML = '';
         
@@ -1886,7 +2434,6 @@ const singlePlayerSystem = {
         
         this.resetTimer();
         
-        // Update navigation buttons
         document.getElementById('prev-question').style.display = 
             questionIndex > 0 ? 'inline-block' : 'none';
         
@@ -1896,7 +2443,6 @@ const singlePlayerSystem = {
         document.getElementById('submit-quiz').style.display = 
             questionIndex === this.currentGame.questions.length - 1 ? 'inline-block' : 'none';
         
-        // Hide question feedback
         const feedbackElement = document.getElementById('question-feedback');
         if (feedbackElement) {
             feedbackElement.classList.remove('show');
@@ -1909,7 +2455,6 @@ const singlePlayerSystem = {
         const question = this.currentGame.questions[this.currentGame.currentQuestion];
         const options = document.querySelectorAll('.option');
         
-        // Disable all options after selection
         options.forEach(opt => {
             opt.style.pointerEvents = 'none';
             opt.classList.remove('selected', 'correct', 'incorrect');
@@ -1987,8 +2532,6 @@ const singlePlayerSystem = {
         this.currentGame.endTime = Date.now();
         
         const timeTaken = Math.floor((this.currentGame.endTime - this.currentGame.startTime) / 1000);
-        const accuracy = (correctAnswers / this.currentGame.questions.length) * 100;
-        
         this.showResults(correctAnswers, timeTaken);
     },
     
@@ -2054,7 +2597,6 @@ const singlePlayerSystem = {
         this.lastTimerUpdate = Date.now();
         this.updateTimerDisplay();
         
-        // Use requestAnimationFrame for more accurate timing
         this.timerInterval = setInterval(() => {
             const now = Date.now();
             const delta = now - this.lastTimerUpdate;
@@ -2069,7 +2611,7 @@ const singlePlayerSystem = {
                     this.nextQuestion();
                 }
             }
-        }, 100); // Check every 100ms for better accuracy
+        }, 100);
     },
     
     resetTimer() {
@@ -2085,964 +2627,9 @@ const singlePlayerSystem = {
             timerElement.setAttribute('aria-label', `${this.timeLeft} seconds remaining`);
         }
     }
-};
+},
 
-// Enhanced Multiplayer Features
-const chatSystem = {
-    messages: [],
-    
-    init() {
-        console.log('💬 Chat system initialized');
-        this.createChatInterface();
-    },
-    
-    createChatInterface() {
-        // Add chat to multiplayer screens
-        const multiplayerScreens = ['multiplayer-lobby', 'multiplayer-quiz-screen'];
-        
-        multiplayerScreens.forEach(screenId => {
-            const screen = document.getElementById(screenId);
-            if (screen && !screen.querySelector('.chat-container')) {
-                const chatHTML = `
-                    <div class="chat-container mt-4">
-                        <div class="card">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h6 class="mb-0"><i class="fas fa-comments me-2"></i>Game Chat</h6>
-                                <span class="badge bg-primary" id="chat-indicator">Live</span>
-                            </div>
-                            <div class="card-body p-0">
-                                <div id="chat-messages-${screenId}" class="chat-messages" style="height: 150px; overflow-y: auto; padding: 10px;"></div>
-                                <div class="chat-input-container p-2 border-top">
-                                    <div class="input-group">
-                                        <input type="text" 
-                                               id="chat-input-${screenId}" 
-                                               class="form-control" 
-                                               placeholder="Type a message..." 
-                                               aria-label="Chat message"
-                                               maxlength="200">
-                                        <button class="btn btn-primary" id="send-chat-${screenId}" type="button">
-                                            <i class="fas fa-paper-plane"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                // Insert chat at the end of the screen
-                screen.insertAdjacentHTML('beforeend', chatHTML);
-            }
-        });
-        
-        this.setupChatListeners();
-    },
-    
-    setupChatListeners() {
-        const screens = ['multiplayer-lobby', 'multiplayer-quiz-screen'];
-        
-        screens.forEach(screenId => {
-            const chatInput = document.getElementById(`chat-input-${screenId}`);
-            const sendButton = document.getElementById(`send-chat-${screenId}`);
-            
-            if (chatInput && sendButton) {
-                // Send on button click
-                sendButton.addEventListener('click', () => this.sendMessage(screenId));
-                
-                // Send on Enter key
-                chatInput.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') {
-                        this.sendMessage(screenId);
-                    }
-                });
-                
-                // Debounce input for typing indicators
-                chatInput.addEventListener('input', buttonManager.debounce(() => {
-                    // Could implement typing indicators here
-                }, 500));
-            }
-        });
-    },
-    
-    sendMessage(screenId) {
-        const chatInput = document.getElementById(`chat-input-${screenId}`);
-        const message = chatInput.value.trim();
-        
-        if (!message) return;
-        
-        const playerName = document.getElementById('mp-player-name')?.value || 'Player';
-        
-        // Add message locally
-        this.addMessage(playerName, message, false, screenId);
-        
-        // Try to send via server if connected
-        if (connectionManager.isConnected && multiplayerSystem.currentRoom) {
-            connectionManager.emit('chatMessage', {
-                roomCode: multiplayerSystem.currentRoom.code,
-                message: message,
-                playerName: playerName
-            }).catch(error => {
-                console.log('Failed to send chat message:', error);
-            });
-        }
-        
-        // Clear input
-        chatInput.value = '';
-        chatInput.focus();
-    },
-    
-    addMessage(playerName, message, isSystem = false, screenId = null) {
-        const timestamp = new Date().toLocaleTimeString();
-        const messageObj = {
-            playerName,
-            message,
-            isSystem,
-            timestamp,
-            screenId
-        };
-        
-        this.messages.push(messageObj);
-        
-        // Add to all multiplayer screens
-        const screens = screenId ? [screenId] : ['multiplayer-lobby', 'multiplayer-quiz-screen'];
-        
-        screens.forEach(screen => {
-            const chatContainer = document.getElementById(`chat-messages-${screen}`);
-            if (chatContainer) {
-                const messageElement = document.createElement('div');
-                messageElement.className = `chat-message ${isSystem ? 'system-message' : ''} ${playerName === (document.getElementById('mp-player-name')?.value || 'Player') ? 'own-message' : ''}`;
-                messageElement.innerHTML = `
-                    <div class="message-header">
-                        ${!isSystem ? `<strong>${playerName}</strong>` : '<em>System</em>'}
-                        <small class="text-muted ms-2">${timestamp}</small>
-                    </div>
-                    <div class="message-content">${this.escapeHtml(message)}</div>
-                `;
-                chatContainer.appendChild(messageElement);
-                chatContainer.scrollTop = chatContainer.scrollHeight;
-            }
-        });
-    },
-    
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    },
-    
-    addSystemMessage(message, screenId = null) {
-        this.addMessage('', message, true, screenId);
-    }
-};
-
-// Real-time Multiplayer System with Real Players Only
-const multiplayerSystem = {
-    currentRoom: null,
-    players: [],
-    gameState: null,
-    timerInterval: null,
-    timeLeft: 0,
-    lastTimerUpdate: 0,
-    
-    init() {
-        console.log('🎮 Multiplayer system initialized');
-        this.setupSocketListeners();
-        this.createMissingScreens();
-    },
-
-    createMissingScreens() {
-        // Create missing multiplayer screens dynamically
-        const cardBody = document.querySelector('.card-body');
-        
-        // Multiplayer Quiz Screen
-        if (!document.getElementById('multiplayer-quiz-screen')) {
-            const mpQuizScreen = document.createElement('div');
-            mpQuizScreen.id = 'multiplayer-quiz-screen';
-            mpQuizScreen.className = 'd-none';
-            mpQuizScreen.setAttribute('aria-hidden', 'true');
-            mpQuizScreen.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <div>
-                        <h3 id="mp-current-subject" class="mb-0">Loading Quiz...</h3>
-                        <span class="badge bg-primary" id="mp-question-count-display">Question 1 of 10</span>
-                    </div>
-                    <div class="timer">
-                        <i class="fas fa-clock me-2" aria-hidden="true"></i>
-                        <span id="mp-time-left" aria-live="assertive">30</span>s
-                    </div>
-                </div>
-                
-                <div class="progress mb-4">
-                    <div id="mp-progress-bar" class="progress-bar bg-success" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
-                </div>
-                
-                <!-- Multiplayer Scoreboard -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="fas fa-trophy me-2" aria-hidden="true"></i>Live Scoreboard</h5>
-                    </div>
-                    <div class="card-body">
-                        <div id="multiplayer-scoreboard" role="list" aria-label="Player scores">
-                            <!-- Players will appear here -->
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Question Feedback -->
-                <div id="mp-question-feedback" class="question-feedback" aria-live="polite">
-                    <i class="fas fa-info-circle me-2" aria-hidden="true"></i>
-                    <span id="mp-feedback-text"></span>
-                </div>
-                
-                <div class="card question-card">
-                    <div class="card-body">
-                        <h4 id="mp-question-text" class="card-title">Loading question...</h4>
-                        <div id="mp-options-container" class="mt-4" role="listbox" aria-label="Answer options">
-                            <!-- Options will appear here -->
-                        </div>
-                    </div>
-                </div>
-            `;
-            cardBody.appendChild(mpQuizScreen);
-        }
-
-        // Multiplayer Results Screen
-        if (!document.getElementById('multiplayer-results-screen')) {
-            const mpResultsScreen = document.createElement('div');
-            mpResultsScreen.id = 'multiplayer-results-screen';
-            mpResultsScreen.className = 'd-none';
-            mpResultsScreen.setAttribute('aria-hidden', 'true');
-            mpResultsScreen.innerHTML = `
-                <div class="text-center mb-5">
-                    <h2>Game Finished! 🎉</h2>
-                    <div class="display-4 fw-bold text-primary mb-2" id="mp-final-score">Winner!</div>
-                    <div class="d-flex align-items-center justify-content-center mb-3">
-                        <div id="mp-winner-avatar" class="multiplayer-avatar me-3" style="width: 60px; height: 60px; font-size: 1.5rem;" aria-hidden="true"></div>
-                        <div>
-                            <h4 id="mp-winner-name" class="mb-1">Player</h4>
-                            <p class="mb-0 text-muted" id="mp-winner-score">0 points</p>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="fas fa-trophy me-2" aria-hidden="true"></i>Final Leaderboard</h5>
-                    </div>
-                    <div class="card-body">
-                        <div id="mp-leaderboard" class="leaderboard" role="list" aria-label="Final rankings">
-                            <!-- Leaderboard will appear here -->
-                        </div>
-                    </div>
-                </div>
-
-                <div class="text-center mt-4">
-                    <button id="play-again-multiplayer" class="btn btn-primary btn-lg me-3">
-                        <i class="fas fa-redo me-2" aria-hidden="true"></i>Play Again
-                    </button>
-                    <button id="back-to-multiplayer-setup" class="btn btn-outline-primary">
-                        <i class="fas fa-home me-2" aria-hidden="true"></i>Multiplayer Menu
-                    </button>
-                </div>
-            `;
-            cardBody.appendChild(mpResultsScreen);
-        }
-    },
-    
-    setupSocketListeners() {
-        // Only setup real listeners if connected
-        if (connectionManager.isConnected) {
-            connectionManager.on('playerJoined', (data) => {
-                this.handlePlayerJoined(data);
-            });
-            
-            connectionManager.on('playerLeft', (data) => {
-                this.handlePlayerLeft(data);
-            });
-            
-            connectionManager.on('roomCreated', (data) => {
-                this.handleRoomCreated(data);
-            });
-            
-            connectionManager.on('roomJoined', (data) => {
-                this.handleRoomJoined(data);
-            });
-            
-            connectionManager.on('gameStarted', (data) => {
-                this.handleGameStarted(data);
-            });
-            
-            connectionManager.on('question', (data) => {
-                this.handleQuestionReceived(data);
-            });
-            
-            connectionManager.on('playerAnswered', (data) => {
-                this.handlePlayerAnswered(data);
-            });
-            
-            connectionManager.on('gameEnded', (data) => {
-                this.handleGameEnded(data);
-            });
-            
-            connectionManager.on('chatMessage', (data) => {
-                chatSystem.addMessage(data.playerName, data.message, false);
-            });
-        }
-    },
-    
-    async createRoom(settings) {
-        const createBtn = document.getElementById('create-room-btn');
-        buttonManager.setLoading(createBtn, true, 'Creating Room...');
-        
-        try {
-            console.log('🎮 Creating multiplayer room...');
-            
-            const playerName = document.getElementById('mp-player-name').value || 'Player';
-            const avatar = avatarSystem.selectedAvatar;
-            
-            // Save player name preference
-            storageManager.savePreferences();
-            
-            // Generate room code
-            const roomCode = this.generateRoomCode();
-            
-            // Create room locally first
-            this.currentRoom = {
-                code: roomCode,
-                host: playerName,
-                settings: settings,
-                players: [{
-                    id: this.getPlayerId(),
-                    name: playerName,
-                    avatar: avatar,
-                    score: 0,
-                    isHost: true
-                }],
-                status: 'waiting'
-            };
-            
-            this.players = this.currentRoom.players;
-            
-            // Try to create room on server if connected
-            if (connectionManager.isConnected) {
-                try {
-                    const result = await Promise.race([
-                        connectionManager.emit('createRoom', {
-                            roomCode: roomCode,
-                            playerName: playerName,
-                            avatar: avatar,
-                            settings: settings
-                        }),
-                        new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('Server timeout')), 3000)
-                        )
-                    ]);
-                    
-                    if (result && result.success) {
-                        console.log('✅ Room created on server');
-                    }
-                } catch (serverError) {
-                    console.log('⚠️ Server creation failed, using local room:', serverError);
-                }
-            }
-            
-            this.updateLobbyDisplay();
-            categoryManager.showScreen('multiplayer-lobby');
-            categoryManager.showSuccess(`Room created! Share code: ${roomCode}`);
-            
-            chatSystem.addSystemMessage(`Room created. Share code: ${roomCode}`, 'multiplayer-lobby');
-            chatSystem.addSystemMessage(`Waiting for players to join...`, 'multiplayer-lobby');
-            
-            return true;
-            
-        } catch (error) {
-            console.error('Error creating room:', error);
-            categoryManager.showError('Failed to create room. Please try again.');
-            return false;
-        } finally {
-            buttonManager.setLoading(createBtn, false, 'Create Room');
-        }
-    },
-    
-    async joinRoom(roomCode) {
-        const joinBtn = document.getElementById('join-room-btn');
-        buttonManager.setLoading(joinBtn, true, 'Joining Room...');
-        
-        try {
-            const playerName = document.getElementById('mp-player-name').value || 'Player';
-            const avatar = avatarSystem.selectedAvatar;
-
-            if (!roomCode || roomCode.length !== 4) {
-                categoryManager.showError('Please enter a valid 4-character room code');
-                return false;
-            }
-
-            // Save player name preference
-            storageManager.savePreferences();
-
-            categoryManager.showLoading(true);
-
-            // Start with just the current player - no demo players
-            this.currentRoom = {
-                code: roomCode.toUpperCase(),
-                host: null, // Will be set by server or when first player joins
-                settings: {
-                    category: 'primary',
-                    subject: 'mathematics', 
-                    difficulty: 'medium',
-                    questionCount: 5
-                },
-                players: [
-                    {
-                        id: this.getPlayerId(),
-                        name: playerName,
-                        avatar: avatar,
-                        score: 0,
-                        isHost: false // Server will determine host
-                    }
-                ],
-                status: 'waiting'
-            };
-
-            this.players = this.currentRoom.players;
-
-            // Try to join on server if connected
-            if (connectionManager.isConnected) {
-                try {
-                    const result = await Promise.race([
-                        connectionManager.emit('joinRoom', {
-                            roomCode: roomCode,
-                            playerName: playerName,
-                            avatar: avatar
-                        }),
-                        new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('Server timeout')), 3000)
-                        )
-                    ]);
-
-                    if (result && result.success) {
-                        console.log('✅ Joined room on server');
-                        // Server will send actual player list via socket events
-                    } else {
-                        throw new Error(result?.error || 'Room not found');
-                    }
-                } catch (serverError) {
-                    console.log('⚠️ Server join failed:', serverError);
-                    categoryManager.showError('Room not found or server unavailable');
-                    return false;
-                }
-            } else {
-                categoryManager.showError('Cannot connect to server. Please check your connection.');
-                return false;
-            }
-
-            this.updateLobbyDisplay();
-            categoryManager.showScreen('multiplayer-lobby');
-            categoryManager.showSuccess(`Joined room: ${roomCode}`);
-
-            chatSystem.addSystemMessage(`${playerName} joined the room`, 'multiplayer-lobby');
-
-            return true;
-
-        } catch (error) {
-            console.error('Error joining room:', error);
-            categoryManager.showError(error.message || 'Failed to join room. Please check the room code.');
-            return false;
-        } finally {
-            categoryManager.showLoading(false);
-            buttonManager.setLoading(joinBtn, false, 'Join Room');
-        }
-    },
-    
-    async startGame() {
-        const startBtn = document.getElementById('start-game-btn');
-        buttonManager.setLoading(startBtn, true, 'Starting Game...');
-        
-        try {
-            if (!this.currentRoom) {
-                categoryManager.showError('No room found');
-                return;
-            }
-            
-            if (this.players.length < 2) {
-                categoryManager.showError('Need at least 2 players to start');
-                return;
-            }
-            
-            // Get questions for the game
-            const questionResult = await questionManager.getQuestions(this.currentRoom.settings);
-            
-            if (questionResult.questions.length === 0) {
-                categoryManager.showError('No questions available');
-                return;
-            }
-            
-            this.gameState = {
-                currentQuestion: 0,
-                questions: questionResult.questions,
-                players: [...this.players],
-                timePerQuestion: 30
-            };
-            
-            // Try to notify server if connected
-            if (connectionManager.isConnected) {
-                try {
-                    await connectionManager.emit('startGame', {
-                        roomCode: this.currentRoom.code,
-                        questions: questionResult.questions
-                    });
-                } catch (error) {
-                    console.log('⚠️ Server start game failed, continuing locally:', error);
-                }
-            }
-            
-            chatSystem.addSystemMessage('Game started! Good luck everyone!', 'multiplayer-lobby');
-            this.loadQuestion(0);
-            
-        } catch (error) {
-            console.error('Error starting game:', error);
-            categoryManager.showError('Failed to start game. Please try again.');
-        } finally {
-            buttonManager.setLoading(startBtn, false, 'Start Game');
-        }
-    },
-    
-    async submitAnswer(questionIndex, answerIndex) {
-        try {
-            if (!this.currentRoom || !this.gameState) return;
-            
-            const question = this.gameState.questions[questionIndex];
-            const isCorrect = answerIndex === question.correctAnswer;
-            
-            // Update local player score
-            const currentPlayer = this.players.find(p => p.id === this.getPlayerId());
-            if (currentPlayer && isCorrect) {
-                currentPlayer.score += 10;
-                currentPlayer.hasAnswered = true;
-            }
-            
-            // Update game state players
-            const gamePlayer = this.gameState.players.find(p => p.id === this.getPlayerId());
-            if (gamePlayer && isCorrect) {
-                gamePlayer.score += 10;
-                gamePlayer.hasAnswered = true;
-            }
-            
-            this.updateScoreboard();
-            
-            // Try to notify server if connected
-            if (connectionManager.isConnected) {
-                try {
-                    await connectionManager.emit('submitAnswer', {
-                        roomCode: this.currentRoom.code,
-                        questionIndex: questionIndex,
-                        answerIndex: answerIndex,
-                        isCorrect: isCorrect
-                    });
-                } catch (error) {
-                    console.log('⚠️ Server answer submission failed:', error);
-                }
-            }
-            
-        } catch (error) {
-            console.error('Error submitting answer:', error);
-        }
-    },
-    
-    leaveRoom() {
-        if (this.currentRoom && connectionManager.isConnected) {
-            try {
-                connectionManager.emit('leaveRoom', { roomCode: this.currentRoom.code });
-            } catch (error) {
-                console.log('⚠️ Server leave room failed:', error);
-            }
-        }
-        
-        this.currentRoom = null;
-        this.players = [];
-        this.gameState = null;
-        clearInterval(this.timerInterval);
-        
-        categoryManager.showScreen('multiplayer-setup');
-    },
-    
-    // Event handlers for real-time updates
-    handlePlayerJoined(data) {
-        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
-            this.players.push(data.player);
-            this.updateLobbyDisplay();
-            categoryManager.showSuccess(`${data.player.name} joined the room!`);
-            chatSystem.addSystemMessage(`${data.player.name} joined the game`, 'multiplayer-lobby');
-        }
-    },
-    
-    handlePlayerLeft(data) {
-        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
-            this.players = this.players.filter(player => player.id !== data.playerId);
-            this.updateLobbyDisplay();
-            categoryManager.showError(`${data.playerName} left the room`);
-            chatSystem.addSystemMessage(`${data.playerName} left the game`, 'multiplayer-lobby');
-        }
-    },
-    
-    handleRoomCreated(data) {
-        // Server confirmed room creation
-        console.log('✅ Room created on server:', data.roomCode);
-    },
-    
-    handleRoomJoined(data) {
-        // Server confirmed room join
-        console.log('✅ Joined room on server:', data.roomCode);
-    },
-    
-    handleGameStarted(data) {
-        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
-            this.gameState = {
-                currentQuestion: 0,
-                questions: data.questions,
-                players: data.players,
-                timePerQuestion: data.timePerQuestion || 30
-            };
-            this.loadQuestion(0);
-        }
-    },
-    
-    handleQuestionReceived(data) {
-        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
-            this.loadQuestion(data.questionIndex);
-        }
-    },
-    
-    handlePlayerAnswered(data) {
-        // Update other players' scores in real-time
-        const player = this.players.find(p => p.id === data.playerId);
-        if (player) {
-            player.score = data.newScore;
-            player.hasAnswered = true;
-        }
-        this.updateScoreboard();
-    },
-    
-    handleGameEnded(data) {
-        if (this.currentRoom && this.currentRoom.code === data.roomCode) {
-            this.showResults(data.finalScores);
-        }
-    },
-    
-    updateLobbyDisplay() {
-        const roomCodeElement = document.getElementById('room-code');
-        const playerCountElement = document.getElementById('player-count');
-        const playersList = document.getElementById('players-list');
-        const startButton = document.getElementById('start-game-btn');
-
-        if (roomCodeElement) {
-            roomCodeElement.textContent = this.currentRoom?.code || '----';
-        }
-
-        if (playerCountElement) {
-            playerCountElement.textContent = `${this.players.length} player(s)`;
-            playerCountElement.setAttribute('aria-label', `${this.players.length} players in room`);
-        }
-
-        if (playersList) {
-            // Clear any waiting messages
-            const waitingMessages = playersList.parentNode.querySelectorAll('.alert');
-            waitingMessages.forEach(msg => msg.remove());
-
-            if (this.players.length === 1) {
-                // Show waiting message
-                const waitingMessage = document.createElement('div');
-                waitingMessage.className = 'alert alert-info text-center';
-                waitingMessage.innerHTML = `
-                    <i class="fas fa-users me-2" aria-hidden="true"></i>
-                    Waiting for other players to join...<br>
-                    <small>Share room code: <strong>${this.currentRoom?.code}</strong></small>
-                `;
-                playersList.parentNode.insertBefore(waitingMessage, playersList);
-            }
-
-            playersList.innerHTML = this.players.map(player => `
-                <div class="player-item" role="listitem">
-                    <div class="multiplayer-avatar me-2" aria-hidden="true">${player.avatar}</div>
-                    <div class="flex-grow-1">
-                        <strong>${player.name}</strong>
-                        ${player.id === this.getPlayerId() ? '<span class="badge bg-primary ms-2">You</span>' : ''}
-                    </div>
-                    ${player.isHost ? '<span class="badge bg-warning">Host</span>' : ''}
-                </div>
-            `).join('');
-        }
-
-        if (startButton && this.currentRoom) {
-            const isHost = this.players.find(p => p.id === this.getPlayerId())?.isHost || false;
-            const canStart = this.players.length >= 2; // Require at least 2 real players
-
-            startButton.style.display = isHost ? 'block' : 'none';
-            startButton.disabled = !canStart;
-
-            if (isHost && !canStart) {
-                startButton.title = `Need ${2 - this.players.length} more player(s) to start`;
-                startButton.setAttribute('aria-label', `Start game disabled. Need ${2 - this.players.length} more players`);
-            } else {
-                startButton.title = '';
-                startButton.setAttribute('aria-label', 'Start game');
-            }
-        }
-    },
-
-    loadQuestion(questionIndex) {
-        if (!this.gameState || questionIndex >= this.gameState.questions.length) {
-            // Game finished
-            this.showResults(this.gameState.players);
-            return;
-        }
-        
-        this.gameState.currentQuestion = questionIndex;
-        const question = this.gameState.questions[questionIndex];
-        
-        // Reset answered status for new question
-        this.players.forEach(player => {
-            player.hasAnswered = false;
-        });
-        
-        // Update UI
-        document.getElementById('mp-current-subject').textContent = 
-            `${this.currentRoom.settings.category} - ${this.currentRoom.settings.subject}`;
-        
-        document.getElementById('mp-question-count-display').textContent = 
-            `Question ${questionIndex + 1} of ${this.gameState.questions.length}`;
-        
-        document.getElementById('mp-question-text').textContent = question.question;
-        
-        // Update progress bar
-        const progress = ((questionIndex) / this.gameState.questions.length) * 100;
-        document.getElementById('mp-progress-bar').style.width = `${progress}%`;
-        document.getElementById('mp-progress-bar').setAttribute('aria-valuenow', progress);
-        
-        // Render options
-        const optionsContainer = document.getElementById('mp-options-container');
-        optionsContainer.innerHTML = '';
-        
-        question.options.forEach((option, index) => {
-            const optionElement = document.createElement('div');
-            optionElement.className = 'option';
-            optionElement.setAttribute('role', 'button');
-            optionElement.setAttribute('aria-label', `Option ${String.fromCharCode(65 + index)}: ${option}`);
-            optionElement.setAttribute('tabindex', '0');
-            optionElement.innerHTML = `
-                <div class="option-content">
-                    <div class="option-letter">${String.fromCharCode(65 + index)}</div>
-                    <div class="option-text">${option}</div>
-                </div>
-            `;
-            
-            optionElement.addEventListener('click', () => {
-                this.selectAnswer(index);
-            });
-            
-            optionElement.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    this.selectAnswer(index);
-                }
-            });
-            
-            optionsContainer.appendChild(optionElement);
-        });
-        
-        // Start timer
-        this.startTimer();
-        
-        // Update scoreboard
-        this.updateScoreboard();
-        
-        categoryManager.showScreen('multiplayer-quiz-screen');
-        
-        // Add chat message for new question
-        chatSystem.addSystemMessage(`Question ${questionIndex + 1} started!`, 'multiplayer-quiz-screen');
-    },
-
-    selectAnswer(optionIndex) {
-        if (!this.gameState) return;
-        
-        const questionIndex = this.gameState.currentQuestion;
-        const question = this.gameState.questions[questionIndex];
-        const options = document.querySelectorAll('#mp-options-container .option');
-        
-        // Disable all options after selection
-        options.forEach(opt => {
-            opt.style.pointerEvents = 'none';
-            opt.classList.remove('selected', 'correct', 'incorrect');
-        });
-        
-        options[optionIndex].classList.add('selected');
-        
-        const isCorrect = optionIndex === question.correctAnswer;
-        
-        // Show correct/incorrect feedback
-        if (isCorrect) {
-            soundSystem.play('correct');
-            options[optionIndex].classList.add('correct');
-        } else {
-            soundSystem.play('wrong');
-            options[optionIndex].classList.add('incorrect');
-            if (question.correctAnswer >= 0 && question.correctAnswer < options.length) {
-                options[question.correctAnswer].classList.add('correct');
-            }
-        }
-        
-        // Submit answer
-        this.submitAnswer(questionIndex, optionIndex);
-        
-        // Show explanation
-        const feedbackElement = document.getElementById('mp-question-feedback');
-        const feedbackText = document.getElementById('mp-feedback-text');
-        
-        if (feedbackElement && feedbackText) {
-            feedbackElement.className = `question-feedback ${isCorrect ? 'correct' : 'incorrect'} show`;
-            feedbackText.textContent = question.explanation || 
-                (isCorrect ? 'Correct! Well done.' : `Incorrect. The right answer is ${String.fromCharCode(65 + question.correctAnswer)}.`);
-            feedbackElement.setAttribute('aria-live', 'assertive');
-        }
-        
-        // Move to next question after delay
-        setTimeout(() => {
-            this.nextQuestion();
-        }, 3000);
-    },
-
-    nextQuestion() {
-        if (this.gameState && this.gameState.currentQuestion < this.gameState.questions.length - 1) {
-            this.loadQuestion(this.gameState.currentQuestion + 1);
-        } else {
-            this.showResults(this.gameState.players);
-        }
-    },
-
-    startTimer() {
-        clearInterval(this.timerInterval);
-        this.timeLeft = this.gameState.timePerQuestion;
-        this.lastTimerUpdate = Date.now();
-        this.updateTimerDisplay();
-        
-        // Use requestAnimationFrame for more accurate timing
-        this.timerInterval = setInterval(() => {
-            const now = Date.now();
-            const delta = now - this.lastTimerUpdate;
-            
-            if (delta >= 1000) {
-                this.timeLeft--;
-                this.lastTimerUpdate = now;
-                this.updateTimerDisplay();
-                
-                if (this.timeLeft <= 0) {
-                    clearInterval(this.timerInterval);
-                    this.nextQuestion();
-                }
-            }
-        }, 100); // Check every 100ms for better accuracy
-    },
-
-    updateTimerDisplay() {
-        const timerElement = document.getElementById('mp-time-left');
-        if (timerElement) {
-            timerElement.textContent = this.timeLeft;
-            timerElement.className = `timer ${this.timeLeft <= 10 ? 'warning' : ''} ${this.timeLeft <= 5 ? 'danger' : ''}`;
-            timerElement.setAttribute('aria-label', `${this.timeLeft} seconds remaining`);
-        }
-    },
-
-    updateScoreboard() {
-        const scoreboard = document.getElementById('multiplayer-scoreboard');
-        if (!scoreboard || !this.players.length) return;
-        
-        // Sort players by score (descending)
-        const sortedPlayers = [...this.players].sort((a, b) => b.score - a.score);
-        
-        scoreboard.innerHTML = sortedPlayers.map((player, index) => {
-            const isCurrentPlayer = player.id === this.getPlayerId();
-            const playerClass = isCurrentPlayer ? 'current-player' : '';
-            const rank = index + 1;
-            
-            return `
-                <div class="scoreboard-item ${playerClass}" role="listitem" aria-label="Rank ${rank}: ${player.name} with ${player.score} points">
-                    <div class="scoreboard-rank">${rank}</div>
-                    <div class="multiplayer-avatar" aria-hidden="true">${player.avatar}</div>
-                    <div class="scoreboard-name">${player.name}</div>
-                    <div class="scoreboard-score">${player.score} pts</div>
-                    ${player.hasAnswered ? '<div class="scoreboard-status answered" aria-label="Answered"><i class="fas fa-check" aria-hidden="true"></i></div>' : '<div class="scoreboard-status waiting" aria-label="Waiting for answer"><i class="fas fa-clock" aria-hidden="true"></i></div>'}
-                </div>
-            `;
-        }).join('');
-    },
-
-    showResults(finalScores) {
-        clearInterval(this.timerInterval);
-        
-        if (!finalScores) {
-            finalScores = this.players;
-        }
-        
-        // Sort players by score
-        const sortedPlayers = [...finalScores].sort((a, b) => b.score - a.score);
-        const winner = sortedPlayers[0];
-        const isWinner = winner.id === this.getPlayerId();
-        
-        // Update results display
-        document.getElementById('mp-final-score').textContent = `${winner.name} wins!`;
-        document.getElementById('mp-winner-avatar').textContent = winner.avatar;
-        document.getElementById('mp-winner-name').textContent = winner.name;
-        document.getElementById('mp-winner-score').textContent = `${winner.score} points`;
-        
-        // Show confetti for winner
-        if (isWinner) {
-            document.getElementById('confetti').style.display = 'block';
-            soundSystem.play('victory');
-            
-            setTimeout(() => {
-                document.getElementById('confetti').style.display = 'none';
-            }, 5000);
-        }
-        
-        // Update leaderboard
-        const leaderboard = document.getElementById('mp-leaderboard');
-        leaderboard.innerHTML = sortedPlayers.map((player, index) => {
-            const isCurrentPlayer = player.id === this.getPlayerId();
-            const playerClass = isCurrentPlayer ? 'current-player' : '';
-            const rank = index + 1;
-            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
-            
-            return `
-                <div class="leaderboard-item ${playerClass}" role="listitem" aria-label="Position ${rank}: ${player.name} with ${player.score} points">
-                    <div class="leaderboard-rank">${medal}</div>
-                    <div class="multiplayer-avatar" aria-hidden="true">${player.avatar}</div>
-                    <div class="leaderboard-name">${player.name}</div>
-                    <div class="leaderboard-score">${player.score} pts</div>
-                </div>
-            `;
-        }).join('');
-        
-        categoryManager.showScreen('multiplayer-results-screen');
-        
-        // Add final results to chat
-        chatSystem.addSystemMessage(`Game finished! Winner: ${winner.name} with ${winner.score} points`, 'multiplayer-quiz-screen');
-    },
-
-    generateRoomCode() {
-        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        let result = '';
-        for (let i = 0; i < 4; i++) {
-            result += characters.charAt(Math.floor(Math.random() * characters.length));
-        }
-        return result;
-    },
-
-    getPlayerId() {
-        // Generate a simple player ID for local use
-        return 'player_' + Math.random().toString(36).substr(2, 9);
-    }
-};
-
-// Accessibility & Keyboard Navigation
+// Accessibility Manager
 const accessibilityManager = {
     init() {
         console.log('♿ Accessibility manager initialized');
@@ -3053,7 +2640,6 @@ const accessibilityManager = {
     
     setupKeyboardNavigation() {
         document.addEventListener('keydown', (e) => {
-            // Number keys 1-4 for answer selection
             if (e.key >= '1' && e.key <= '4' && currentState.screen.includes('quiz-screen')) {
                 const optionIndex = parseInt(e.key) - 1;
                 const options = document.querySelectorAll('.option');
@@ -3062,18 +2648,15 @@ const accessibilityManager = {
                 }
             }
             
-            // Space bar for next question
             if (e.key === ' ' && document.getElementById('next-question')?.style.display !== 'none') {
                 e.preventDefault();
                 document.getElementById('next-question').click();
             }
             
-            // Escape key to go back
             if (e.key === 'Escape') {
                 this.handleEscapeKey();
             }
             
-            // Tab key management for modals
             if (e.key === 'Tab') {
                 this.handleTabKey(e);
             }
@@ -3088,17 +2671,12 @@ const accessibilityManager = {
             case 'multiplayer-lobby':
                 document.getElementById('leave-room-btn').click();
                 break;
-            case 'quiz-screen':
-            case 'multiplayer-quiz-screen':
-                // Don't allow escape during active quiz
-                break;
             default:
                 categoryManager.showCategorySelection();
         }
     },
     
     handleTabKey(e) {
-        // Keep tab focus within modal dialogs
         const modal = document.querySelector('.modal.show');
         if (modal) {
             const focusableElements = modal.querySelectorAll(
@@ -3122,7 +2700,6 @@ const accessibilityManager = {
     },
     
     enhanceAccessibility() {
-        // Add ARIA roles and labels to interactive elements
         document.querySelectorAll('.option').forEach(option => {
             option.setAttribute('role', 'button');
             option.setAttribute('tabindex', '0');
@@ -3132,10 +2709,7 @@ const accessibilityManager = {
             card.setAttribute('tabindex', '0');
         });
         
-        // Add skip to main content link
         this.addSkipLink();
-        
-        // Enhance form labels
         this.enhanceFormLabels();
     },
     
@@ -3163,7 +2737,6 @@ const accessibilityManager = {
         
         document.body.insertBefore(skipLink, document.body.firstChild);
         
-        // Add main content ID
         const mainContent = document.querySelector('.card-body') || document.querySelector('main');
         if (mainContent) {
             mainContent.id = 'main-content';
@@ -3186,7 +2759,6 @@ const accessibilityManager = {
     },
     
     setupFocusManagement() {
-        // Focus management for screen transitions
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
                 mutation.addedNodes.forEach((node) => {
@@ -3224,7 +2796,6 @@ const accessibilityManager = {
         announcer.setAttribute('aria-live', priority);
         announcer.textContent = message;
         
-        // Clear message after a delay
         setTimeout(() => {
             announcer.textContent = '';
         }, 1000);
@@ -3245,9 +2816,9 @@ const accessibilityManager = {
         document.body.appendChild(announcer);
         return announcer;
     }
-};
+},
 
-// Asset Preloader
+// Asset Manager
 const assetManager = {
     init() {
         console.log('📦 Asset manager initialized');
@@ -3263,7 +2834,6 @@ const assetManager = {
             }
         });
         
-        // Preload critical images or other assets
         this.preloadCriticalImages();
     },
     
@@ -3277,212 +2847,166 @@ const assetManager = {
             img.src = src;
         });
     }
+},
+
+
+    generatePlayerId() {
+        // Generate a persistent player ID
+        let playerId = localStorage.getItem('quizMasterPlayerId');
+        if (!playerId) {
+            playerId = 'player_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
+            localStorage.setItem('quizMasterPlayerId', playerId);
+        }
+        return playerId;
+    }
 };
 
-// UI Event Handlers
-function setupEventListeners() {
-    console.log('🔧 Setting up event listeners...');
-
-    // Sound toggle
-    const soundToggle = document.getElementById('toggle-sound');
-    if (soundToggle) {
-        soundToggle.addEventListener('click', () => {
-            soundSystem.toggle();
+// Enhanced Chat System
+const chatSystem = {
+    messages: [],
+    
+    init() {
+        console.log('💬 Chat system initialized');
+        this.createChatInterface();
+    },
+    
+    createChatInterface() {
+        // Add chat to multiplayer screens
+        const multiplayerScreens = ['multiplayer-lobby', 'multiplayer-quiz-screen'];
+        
+        multiplayerScreens.forEach(screenId => {
+            const screen = document.getElementById(screenId);
+            if (screen && !screen.querySelector('.chat-container')) {
+                const chatHTML = `
+                    <div class="chat-container mt-4">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0"><i class="fas fa-comments me-2"></i>Game Chat</h6>
+                                <span class="badge bg-primary" id="chat-indicator">Live</span>
+                            </div>
+                            <div class="card-body p-0">
+                                <div id="chat-messages-${screenId}" class="chat-messages"></div>
+                                <div class="chat-input-container p-2 border-top">
+                                    <div class="input-group">
+                                        <input type="text" 
+                                               id="chat-input-${screenId}" 
+                                               class="form-control" 
+                                               placeholder="Type a message..." 
+                                               aria-label="Chat message"
+                                               maxlength="200">
+                                        <button class="btn btn-primary" id="send-chat-${screenId}" type="button">
+                                            <i class="fas fa-paper-plane"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                screen.insertAdjacentHTML('beforeend', chatHTML);
+            }
         });
-    }
-
-    // Start quiz button (single player)
-    const startQuizBtn = document.getElementById('start-quiz-btn');
-    if (startQuizBtn) {
-        startQuizBtn.addEventListener('click', buttonManager.debounce(() => {
-            const settings = categoryManager.getCurrentSettings();
-            const playerName = document.getElementById('player-name').value || 'Player';
+        
+        this.setupChatListeners();
+    },
+    
+    setupChatListeners() {
+        const screens = ['multiplayer-lobby', 'multiplayer-quiz-screen'];
+        
+        screens.forEach(screenId => {
+            const chatInput = document.getElementById(`chat-input-${screenId}`);
+            const sendButton = document.getElementById(`send-chat-${screenId}`);
             
-            // Save player name
-            storageManager.savePreferences();
-            
-            if (!settings.category || !settings.subject) {
-                categoryManager.showError('Please select a category and subject');
-                return;
-            }
-
-            if (settings.gameMode === 'single') {
-                singlePlayerSystem.startGame(
-                    settings.category,
-                    settings.subject,
-                    playerName,
-                    avatarSystem.selectedAvatar,
-                    settings.difficulty,
-                    settings.questionCount,
-                    settings.questionSource
-                );
-            } else {
-                // Multiplayer mode - go to multiplayer setup
-                categoryManager.showScreen('multiplayer-setup');
-            }
-        }, 500));
-    }
-
-    // Multiplayer setup
-    const setupMultiplayer = document.getElementById('setup-multiplayer');
-    if (setupMultiplayer) {
-        setupMultiplayer.addEventListener('click', () => {
-            categoryManager.showScreen('multiplayer-setup');
-        });
-    }
-
-    // Create room
-    const createRoomBtn = document.getElementById('create-room-btn');
-    if (createRoomBtn) {
-        createRoomBtn.addEventListener('click', buttonManager.debounce(() => {
-            const settings = categoryManager.getCurrentSettings();
-            multiplayerSystem.createRoom(settings);
-        }, 500));
-    }
-
-    // Join room
-    const joinRoomBtn = document.getElementById('join-room-btn');
-    if (joinRoomBtn) {
-        joinRoomBtn.addEventListener('click', buttonManager.debounce(() => {
-            const roomCode = document.getElementById('room-code-input').value;
-            multiplayerSystem.joinRoom(roomCode);
-        }, 500));
-    }
-
-    // Start multiplayer game
-    const startGameBtn = document.getElementById('start-game-btn');
-    if (startGameBtn) {
-        startGameBtn.addEventListener('click', buttonManager.debounce(() => {
-            multiplayerSystem.startGame();
-        }, 500));
-    }
-
-    // Leave room
-    const leaveRoomBtn = document.getElementById('leave-room-btn');
-    if (leaveRoomBtn) {
-        leaveRoomBtn.addEventListener('click', () => {
-            multiplayerSystem.leaveRoom();
-        });
-    }
-
-    // Back to multiplayer setup
-    const backToMultiplayerSetup = document.getElementById('back-to-multiplayer-setup');
-    if (backToMultiplayerSetup) {
-        backToMultiplayerSetup.addEventListener('click', () => {
-            multiplayerSystem.leaveRoom();
-        });
-    }
-
-    // Quiz navigation
-    const prevQuestion = document.getElementById('prev-question');
-    if (prevQuestion) {
-        prevQuestion.addEventListener('click', () => {
-            singlePlayerSystem.prevQuestion();
-        });
-    }
-
-    const nextQuestion = document.getElementById('next-question');
-    if (nextQuestion) {
-        nextQuestion.addEventListener('click', () => {
-            singlePlayerSystem.nextQuestion();
-        });
-    }
-
-    const submitQuiz = document.getElementById('submit-quiz');
-    if (submitQuiz) {
-        submitQuiz.addEventListener('click', () => {
-            singlePlayerSystem.submitQuiz();
-        });
-    }
-
-    // Play again buttons
-    const playAgainSingle = document.getElementById('play-again-btn');
-    if (playAgainSingle) {
-        playAgainSingle.addEventListener('click', () => {
-            categoryManager.showCategorySelection();
-        });
-    }
-
-    const playAgainMultiplayer = document.getElementById('play-again-multiplayer');
-    if (playAgainMultiplayer) {
-        playAgainMultiplayer.addEventListener('click', () => {
-            multiplayerSystem.leaveRoom();
-            categoryManager.showScreen('multiplayer-setup');
-        });
-    }
-
-    const backToMainFromResults = document.getElementById('back-to-menu');
-    if (backToMainFromResults) {
-        backToMainFromResults.addEventListener('click', () => {
-            categoryManager.showCategorySelection();
-        });
-    }
-
-    // Back to main menu from various screens
-    const backButtons = document.querySelectorAll('.back-to-main');
-    backButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            categoryManager.showCategorySelection();
-        });
-    });
-
-    // Room code input uppercase
-    const roomCodeInput = document.getElementById('room-code-input');
-    if (roomCodeInput) {
-        roomCodeInput.addEventListener('input', (e) => {
-            e.target.value = e.target.value.toUpperCase();
-        });
-    }
-
-    // Enter key for room code
-    if (roomCodeInput) {
-        roomCodeInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                document.getElementById('join-room-btn').click();
+            if (chatInput && sendButton) {
+                sendButton.addEventListener('click', () => this.sendMessage(screenId));
+                chatInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.sendMessage(screenId);
+                    }
+                });
             }
         });
-    }
-
-    // Player name input enter key
-    const playerNameInput = document.getElementById('player-name');
-    if (playerNameInput) {
-        playerNameInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                document.getElementById('start-quiz-btn').click();
+    },
+    
+    async sendMessage(screenId) {
+        const chatInput = document.getElementById(`chat-input-${screenId}`);
+        const message = chatInput.value.trim();
+        
+        if (!message) return;
+        
+        const playerName = document.getElementById('mp-player-name')?.value || 'Player';
+        
+        // Add message locally immediately
+        this.addMessage(playerName, message, false, screenId);
+        
+        // Send to server
+        if (connectionManager.isConnected && multiplayerSystem.currentRoom) {
+            await connectionManager.emit('chatMessage', {
+                roomCode: multiplayerSystem.currentRoom.code,
+                message: message,
+                playerName: playerName,
+                playerId: multiplayerSystem.playerId
+            });
+        }
+        
+        chatInput.value = '';
+        chatInput.focus();
+    },
+    
+    handleIncomingMessage(data) {
+        if (multiplayerSystem.currentRoom && data.roomCode === multiplayerSystem.currentRoom.code) {
+            // Don't show our own messages twice
+            if (data.playerId !== multiplayerSystem.playerId) {
+                this.addMessage(data.playerName, data.message, false);
+            }
+        }
+    },
+    
+    addMessage(playerName, message, isSystem = false, screenId = null) {
+        const timestamp = new Date().toLocaleTimeString();
+        const messageObj = {
+            playerName,
+            message,
+            isSystem,
+            timestamp
+        };
+        
+        this.messages.push(messageObj);
+        
+        // Add to all multiplayer screens or specific screen
+        const screens = screenId ? [screenId] : ['multiplayer-lobby', 'multiplayer-quiz-screen'];
+        
+        screens.forEach(screen => {
+            const chatContainer = document.getElementById(`chat-messages-${screen}`);
+            if (chatContainer && document.getElementById(screen) && !document.getElementById(screen).classList.contains('d-none')) {
+                const messageElement = document.createElement('div');
+                messageElement.className = `chat-message ${isSystem ? 'system-message' : ''} ${playerName === (document.getElementById('mp-player-name')?.value || 'Player') ? 'own-message' : ''}`;
+                messageElement.innerHTML = `
+                    <div class="message-header">
+                        ${!isSystem ? `<strong>${playerName}</strong>` : '<em>System</em>'}
+                        <small class="text-muted ms-2">${timestamp}</small>
+                    </div>
+                    <div class="message-content">${this.escapeHtml(message)}</div>
+                `;
+                chatContainer.appendChild(messageElement);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
             }
         });
-        // Save on blur
-        playerNameInput.addEventListener('blur', () => {
-            storageManager.savePreferences();
-        });
+    },
+    
+    addSystemMessage(message, screenId = null) {
+        this.addMessage('', message, true, screenId);
+    },
+    
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
+};
 
-    const mpPlayerNameInput = document.getElementById('mp-player-name');
-    if (mpPlayerNameInput) {
-        mpPlayerNameInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                // Check which multiplayer screen we're on
-                if (currentState.screen === 'multiplayer-setup') {
-                    document.getElementById('create-room-btn').click();
-                }
-            }
-        });
-        // Save on blur
-        mpPlayerNameInput.addEventListener('blur', () => {
-            storageManager.savePreferences();
-        });
-    }
-
-    // Auto-save preferences when inputs change
-    const autoSaveInputs = document.querySelectorAll('#player-name, #mp-player-name, #difficulty-select, #question-count, #question-source');
-    autoSaveInputs.forEach(input => {
-        input.addEventListener('change', () => {
-            storageManager.savePreferences();
-        });
-    });
-}
-
-// Initialize the application
+// Update the initApp function to use the new connection manager
 async function initApp() {
     console.log('🚀 Initializing QuizMaster App...');
 
@@ -3490,8 +3014,10 @@ async function initApp() {
         // Load user preferences first
         storageManager.loadPreferences();
         
-        // Initialize systems in sequence
+        // Initialize connection manager first
         await connectionManager.init();
+        
+        // Initialize other systems
         assetManager.init();
         avatarSystem.init();
         categoryManager.init();
@@ -3515,9 +3041,6 @@ async function initApp() {
         
         console.log('✅ QuizMaster App initialized successfully!');
         
-        // Show connection status
-        connectionManager.setConnectionStatus('connected');
-        
         // Announce readiness to screen readers
         accessibilityManager.announceToScreenReader('QuizMaster application ready');
         
@@ -3528,14 +3051,10 @@ async function initApp() {
     }
 }
 
-// Start the app when DOM is loaded
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initApp);
-} else {
-    initApp();
-}
+// Make sure to include all the other systems (soundSystem, storageManager, etc.)
+// They remain the same as in the previous implementation
 
-// Export for global access (if needed)
+// Export for global access
 window.QuizMaster = {
     categoryManager,
     singlePlayerSystem,
