@@ -1526,32 +1526,48 @@
                 this.currentSubject = null;
             },
             
-            showScreen(screenName) {
-                const screens = [
-                    'category-selection',
-                    'subject-selection', 
-                    'multiplayer-setup',
-                    'multiplayer-lobby',
-                    'quiz-screen',
-                    'results-screen',
-                    'multiplayer-quiz-screen',
-                    'multiplayer-results-screen'
-                ];
-                
-                screens.forEach(screen => {
-                    const element = document.getElementById(screen);
-                    if (element) {
-                        element.classList.add('d-none');
-                    }
-                });
-                
-                const targetScreen = document.getElementById(screenName);
-                if (targetScreen) {
-                    targetScreen.classList.remove('d-none');
-                    currentState.screen = screenName;
-                }
-            },
-            
+        // In categoryManager object, update showScreen method:
+
+showScreen(screenName) {
+    console.log('🔄 Switching to screen:', screenName);
+    
+    const screens = [
+        'category-selection',
+        'subject-selection', 
+        'multiplayer-setup',
+        'multiplayer-lobby',
+        'quiz-screen',
+        'results-screen',
+        'multiplayer-quiz-screen',
+        'multiplayer-results-screen',
+        'dashboard-screen'
+    ];
+    
+    screens.forEach(screen => {
+        const element = document.getElementById(screen);
+        if (element) {
+            element.classList.add('d-none');
+            element.setAttribute('aria-hidden', 'true');
+        }
+    });
+    
+    const targetScreen = document.getElementById(screenName);
+    if (targetScreen) {
+        targetScreen.classList.remove('d-none');
+        targetScreen.setAttribute('aria-hidden', 'false');
+        currentState.screen = screenName;
+        
+        console.log('✅ Screen switched to:', screenName);
+        
+        // Focus management for accessibility
+        const mainHeading = targetScreen.querySelector('h1, h2, h3');
+        if (mainHeading) {
+            setTimeout(() => mainHeading.focus(), 100);
+        }
+    } else {
+        console.error('❌ Target screen not found:', screenName);
+    }
+},
             getCurrentSettings() {
                 return {
                     category: this.currentCategory,
@@ -1999,152 +2015,326 @@
             },
 
             // Event handlers
-            handleGameCreated(data) {
-                console.log('✅ Game created on server:', data.gameCode);
-                
-                this.currentRoom = {
-                    code: data.gameCode,
-                    host: data.hostId,
-                    settings: data.settings,
-                    status: 'waiting'
-                };
-                
-                this.players = data.players || [];
-                
-                this.updateLobbyDisplay();
-                categoryManager.showSuccess(`Room created! Code: ${data.gameCode}`);
-                chatSystem.addSystemMessage(`Room created. Share code: ${data.gameCode}`, 'chat-messages-lobby');
-                chatSystem.addSystemMessage('Waiting for other players to join...', 'chat-messages-lobby');
-            },
+      // In connectionManager setupSocketListeners(), update these handlers:
 
-            handleGameJoined(data) {
-                console.log('✅ Joined game on server:', data.gameCode);
-                
-                this.currentRoom = {
-                    code: data.gameCode,
-                    host: data.hostId,
-                    settings: data.settings,
-                    status: 'waiting'
-                };
-                
-                this.players = data.players || [];
-                
-                this.updateLobbyDisplay();
-                categoryManager.showSuccess(`Joined room: ${data.gameCode}`);
-                chatSystem.addSystemMessage(`You joined the room. Welcome!`, 'chat-messages-lobby');
-            },
+setupSocketListeners() {
+    // Game events
+    this.socket.on('gameCreated', (data) => {
+        console.log('🎮 Game created:', data);
+        multiplayerSystem.handleGameCreated(data);
+    });
 
-            handlePlayerJoined(data) {
-                console.log('👤 Player joined:', data.name);
-                
-                // Check if player already exists
-                const existingPlayer = this.players.find(p => p.id === data.id);
-                if (!existingPlayer) {
-                    this.players.push({
-                        id: data.id,
-                        name: data.name,
-                        avatar: data.avatar,
-                        score: 0,
-                        isHost: data.isHost || false,
-                        hasAnswered: false,
-                        ready: data.ready || false
-                    });
-                    
-                    this.updateLobbyDisplay();
-                    categoryManager.showSuccess(`${data.name} joined the room!`);
-                    chatSystem.addSystemMessage(`${data.name} joined the game`, 'chat-messages-lobby');
+    this.socket.on('gameJoined', (data) => {
+        console.log('🎮 Game joined:', data);
+        multiplayerSystem.handleGameJoined(data);
+    });
+
+    this.socket.on('playerJoined', (data) => {
+        console.log('👤 Player joined:', data);
+        multiplayerSystem.handlePlayerJoined(data);
+    });
+
+    this.socket.on('playerLeft', (data) => {
+        console.log('👤 Player left:', data);
+        multiplayerSystem.handlePlayerLeft(data);
+    });
+
+    this.socket.on('gameStarting', (data) => {
+        console.log('🎮 Game starting:', data);
+        multiplayerSystem.handleGameStarting(data);
+    });
+
+    this.socket.on('gameStarted', (data) => {
+        console.log('🎮 Game started:', data);
+        multiplayerSystem.handleGameStarted(data);
+    });
+
+    this.socket.on('playerAnswered', (data) => {
+        console.log('✅ Player answered:', data);
+        multiplayerSystem.handlePlayerAnswered(data);
+    });
+
+    this.socket.on('nextQuestion', (data) => {
+        console.log('❓ Next question:', data);
+        multiplayerSystem.handleNextQuestion(data);
+    });
+
+    this.socket.on('gameFinished', (data) => {
+        console.log('🏁 Game finished:', data);
+        multiplayerSystem.handleGameFinished(data);
+    });
+
+    this.socket.on('gameError', (data) => {
+        console.error('❌ Game error:', data);
+        categoryManager.showError(data.message);
+    });
+
+    this.socket.on('playerReadyChanged', (data) => {
+        console.log('✅ Player ready changed:', data);
+        multiplayerSystem.handlePlayerReadyChanged(data);
+    });
+
+    this.socket.on('newHost', (data) => {
+        console.log('👑 New host:', data);
+        multiplayerSystem.handleNewHost(data);
+    });
+
+    this.socket.on('chatMessage', (data) => {
+        console.log('💬 Chat message:', data);
+        chatSystem.handleIncomingMessage(data);
+    });
+},
+
+// In multiplayerSystem object, update these methods:
+
+handleGameCreated(data) {
+    console.log('✅ Game created on server:', data.gameCode);
+    
+    this.currentRoom = {
+        code: data.gameCode,
+        host: data.hostId,
+        settings: data.settings,
+        status: 'waiting'
+    };
+    
+    this.players = data.players || [];
+    
+    this.updateLobbyDisplay();
+    categoryManager.showSuccess(`Room created! Code: ${data.gameCode}`);
+    chatSystem.addSystemMessage(`Room created. Share code: ${data.gameCode}`, 'chat-messages-lobby');
+    chatSystem.addSystemMessage('Waiting for other players to join...', 'chat-messages-lobby');
+    
+    // Ensure we're on the lobby screen
+    categoryManager.showScreen('multiplayer-lobby');
+},
+
+handleGameJoined(data) {
+    console.log('✅ Joined game on server:', data.gameCode);
+    
+    this.currentRoom = {
+        code: data.gameCode,
+        host: data.hostId,
+        settings: data.settings,
+        status: 'waiting'
+    };
+    
+    this.players = data.players || [];
+    
+    this.updateLobbyDisplay();
+    categoryManager.showSuccess(`Joined room: ${data.gameCode}`);
+    chatSystem.addSystemMessage(`You joined the room. Welcome!`, 'chat-messages-lobby');
+    
+    // Ensure we're on the lobby screen
+    categoryManager.showScreen('multiplayer-lobby');
+},
+
+handleGameStarting(data) {
+    console.log('🎮 Game starting with countdown:', data);
+    chatSystem.addSystemMessage(`Game starting in ${data.countdown} seconds...`, 'chat-messages-lobby');
+    
+    this.showGameCountdown(data.countdown);
+},
+
+handleGameStarted(data) {
+    console.log('🎮 Game started with questions:', data.questions?.length);
+    
+    if (!this.currentRoom) {
+        console.error('❌ No current room when game started');
+        return;
+    }
+    
+    this.gameState = {
+        currentQuestion: 0,
+        questions: data.questions,
+        players: [...this.players],
+        timePerQuestion: 30,
+        startTime: Date.now()
+    };
+    
+    // Reset player answer status for new game
+    this.players.forEach(player => {
+        player.hasAnswered = false;
+        player.score = 0;
+    });
+    
+    chatSystem.addSystemMessage('Game started! Good luck everyone!', 'chat-messages-lobby');
+    
+    // Force screen change to quiz screen
+    setTimeout(() => {
+        this.loadQuestion(0);
+    }, 1000);
+},
+
+handleNextQuestion(data) {
+    console.log('❓ Next question received:', data.index);
+    this.loadQuestion(data.index);
+},
+
+// Enhanced loadQuestion method with better error handling
+loadQuestion(questionIndex) {
+    console.log('📝 Loading question:', questionIndex);
+    
+    if (!this.gameState) {
+        console.error('❌ No game state available');
+        return;
+    }
+    
+    if (questionIndex >= this.gameState.questions.length) {
+        console.log('🏁 No more questions, finishing game');
+        this.showResults(this.gameState.players);
+        return;
+    }
+    
+    this.gameState.currentQuestion = questionIndex;
+    const question = this.gameState.questions[questionIndex];
+    
+    if (!question) {
+        console.error('❌ Invalid question at index:', questionIndex);
+        return;
+    }
+    
+    console.log('📋 Question loaded:', question.question.substring(0, 50) + '...');
+    
+    // Reset answered status for new question
+    this.players.forEach(player => {
+        player.hasAnswered = false;
+    });
+    
+    // Update UI with Ghana curriculum info
+    const examInfo = {
+        primary: "BECE Curriculum",
+        highschool: "WASSCE Curriculum", 
+        tertiary: "Tertiary Education"
+    };
+    
+    const subjectInfo = categoryManager.getSubjectDisplayName(this.currentRoom.settings.subject);
+    const subjectElement = document.getElementById('mp-current-subject');
+    if (subjectElement) {
+        subjectElement.textContent = `${subjectInfo.name} - ${examInfo[this.currentRoom.settings.category]}`;
+    }
+    
+    const questionCountElement = document.getElementById('mp-question-count-display');
+    if (questionCountElement) {
+        questionCountElement.textContent = `Question ${questionIndex + 1} of ${this.gameState.questions.length}`;
+    }
+    
+    const questionTextElement = document.getElementById('mp-question-text');
+    if (questionTextElement) {
+        questionTextElement.textContent = question.question;
+    }
+    
+    // Update progress bar
+    const progress = ((questionIndex) / this.gameState.questions.length) * 100;
+    const progressBar = document.getElementById('mp-progress-bar');
+    if (progressBar) {
+        progressBar.style.width = `${progress}%`;
+        progressBar.setAttribute('aria-valuenow', progress);
+    }
+    
+    // Render options
+    const optionsContainer = document.getElementById('mp-options-container');
+    if (optionsContainer) {
+        optionsContainer.innerHTML = '';
+        
+        question.options.forEach((option, index) => {
+            const optionElement = document.createElement('div');
+            optionElement.className = 'option';
+            optionElement.setAttribute('role', 'button');
+            optionElement.setAttribute('aria-label', `Option ${String.fromCharCode(65 + index)}: ${option}`);
+            optionElement.setAttribute('tabindex', '0');
+            optionElement.innerHTML = `
+                <div class="option-content">
+                    <div class="option-letter">${String.fromCharCode(65 + index)}</div>
+                    <div class="option-text">${option}</div>
+                </div>
+            `;
+            
+            optionElement.addEventListener('click', () => {
+                console.log('🖱️ Option clicked:', index);
+                this.selectAnswer(index);
+            });
+            
+            optionElement.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    console.log('⌨️ Option selected via keyboard:', index);
+                    this.selectAnswer(index);
                 }
-            },
+            });
+            
+            optionsContainer.appendChild(optionElement);
+        });
+    }
+    
+    // Start timer
+    this.startTimer();
+    
+    // Update scoreboard
+    this.updateScoreboard();
+    
+    // Switch to quiz screen
+    console.log('🔄 Switching to multiplayer quiz screen');
+    categoryManager.showScreen('multiplayer-quiz-screen');
+    
+    // Add chat message for new question
+    chatSystem.addSystemMessage(`Question ${questionIndex + 1} started!`, 'chat-messages-quiz');
+},
 
-            handlePlayerLeft(data) {
-                console.log('👤 Player left:', data.playerName);
-                
-                this.players = this.players.filter(player => player.id !== data.playerId);
-                this.updateLobbyDisplay();
-                categoryManager.showError(`${data.playerName} left the room`);
-                chatSystem.addSystemMessage(`${data.playerName} left the game`, 'chat-messages-lobby');
-            },
-
-            handleGameStarting(data) {
-                console.log('🎮 Game starting with countdown:', data.countdown);
-                chatSystem.addSystemMessage(`Game starting in ${data.countdown} seconds...`, 'chat-messages-lobby');
-                
-                this.showGameCountdown(data.countdown);
-            },
-
-            handleGameStarted(data) {
-                console.log('🎮 Game started');
-                
-                this.gameState = {
-                    currentQuestion: 0,
-                    questions: data.questions,
-                    players: [...this.players],
-                    timePerQuestion: 30,
-                    startTime: Date.now()
-                };
-                
-                // Reset player answer status for new game
-                this.players.forEach(player => {
-                    player.hasAnswered = false;
-                    player.score = 0;
-                });
-                
-                chatSystem.addSystemMessage('Game started! Good luck everyone!', 'chat-messages-lobby');
-                this.loadQuestion(0);
-            },
-
-            handlePlayerAnswered(data) {
-                console.log('✅ Player answered:', data.playerId);
-                
-                const player = this.players.find(p => p.id === data.playerId);
-                if (player) {
-                    player.score = data.score;
-                    player.hasAnswered = true;
-                    
-                    this.updateScoreboard();
-                    
-                    if (data.playerId !== this.playerId) {
-                        const playerName = player.name;
-                        const message = data.isCorrect ? 
-                            `${playerName} answered correctly! +${data.points || 100} points` :
-                            `${playerName} answered incorrectly`;
-                        chatSystem.addSystemMessage(message, 'chat-messages-quiz');
-                    }
-                }
-            },
-
-            handleNextQuestion(data) {
-                console.log('❓ Next question:', data.index);
-                this.loadQuestion(data.index);
-            },
-
-            handleGameFinished(data) {
-                console.log('🏁 Game finished');
-                this.showResults(data.players);
-            },
-
-            handlePlayerReadyChanged(data) {
-                const player = this.players.find(p => p.id === data.playerId);
-                if (player) {
-                    player.ready = data.ready;
-                    this.updateLobbyDisplay();
-                    
-                    const status = data.ready ? 'ready' : 'not ready';
-                    chatSystem.addSystemMessage(`${player.name} is ${status}`, 'chat-messages-lobby');
-                }
-            },
-
-            handleNewHost(data) {
-                console.log('👑 New host assigned:', data);
-                
-                this.players.forEach(player => {
-                    player.isHost = (player.id === data);
-                });
-                
-                this.updateLobbyDisplay();
-                chatSystem.addSystemMessage('New host assigned to the game', 'chat-messages-lobby');
-            },
-
+// Enhanced selectAnswer method
+selectAnswer(optionIndex) {
+    console.log('🎯 Answer selected:', optionIndex);
+    
+    if (!this.gameState) {
+        console.error('❌ No game state when answering');
+        return;
+    }
+    
+    const questionIndex = this.gameState.currentQuestion;
+    const question = this.gameState.questions[questionIndex];
+    const options = document.querySelectorAll('#mp-options-container .option');
+    
+    console.log('📊 Question details:', {
+        questionIndex,
+        correctAnswer: question.correctAnswer,
+        selectedAnswer: optionIndex
+    });
+    
+    // Disable all options after selection
+    options.forEach(opt => {
+        opt.style.pointerEvents = 'none';
+        opt.classList.remove('selected', 'correct', 'incorrect');
+    });
+    
+    options[optionIndex].classList.add('selected');
+    
+    const isCorrect = optionIndex === question.correctAnswer;
+    console.log('✅ Answer correct:', isCorrect);
+    
+    // Show correct/incorrect feedback
+    if (isCorrect) {
+        soundSystem.play('correct');
+        options[optionIndex].classList.add('correct');
+    } else {
+        soundSystem.play('wrong');
+        options[optionIndex].classList.add('incorrect');
+        if (question.correctAnswer >= 0 && question.correctAnswer < options.length) {
+            options[question.correctAnswer].classList.add('correct');
+        }
+    }
+    
+    // Submit answer
+    this.submitAnswer(questionIndex, optionIndex);
+    
+    // Show explanation
+    const feedbackElement = document.getElementById('mp-question-feedback');
+    const feedbackText = document.getElementById('mp-feedback-text');
+    
+    if (feedbackElement && feedbackText) {
+        feedbackElement.className = `question-feedback ${isCorrect ? 'correct' : 'incorrect'} show`;
+        feedbackText.textContent = question.explanation || 
+            (isCorrect ? 'Correct! Well done.' : `Incorrect. The right answer is ${String.fromCharCode(65 + question.correctAnswer)}.`);
+        feedbackElement.setAttribute('aria-live', 'assertive');
+    }
+},
             // Room management
             async createRoom(settings) {
                 const createBtn = document.getElementById('create-room-btn');
@@ -2624,8 +2814,33 @@
                 clearInterval(this.timerInterval);
 
                 categoryManager.showScreen('multiplayer-setup');
-            }
+            },
+
+            // Add to multiplayerSystem object:
+
+// Debug method to check current state
+debugState() {
+    console.log('🐛 MULTIPLAYER DEBUG STATE:');
+    console.log('Current Room:', this.currentRoom);
+    console.log('Players:', this.players);
+    console.log('Game State:', this.gameState);
+    console.log('Current Screen:', currentState.screen);
+    console.log('Socket Connected:', connectionManager.isConnected);
+},
+
+// Method to manually trigger game start (for testing)
+debugStartGame() {
+    if (!this.currentRoom) {
+        console.error('❌ No current room for debug start');
+        return;
+    }
+    
+    console.log('🐛 DEBUG: Manually starting game');
+    this.startGame();
+}
         };
+
+        
 
         // Setup Event Listeners
         function setupEventListeners() {
@@ -2795,7 +3010,17 @@
                     }
                 });
             }
+            // Add this temporary debug button to your setupEventListeners():
+const debugBtn = document.createElement('button');
+debugBtn.className = 'btn btn-warning btn-sm position-fixed';
+debugBtn.style = 'top: 10px; right: 10px; z-index: 10000;';
+debugBtn.innerHTML = '🐛 Debug';
+debugBtn.addEventListener('click', () => {
+    multiplayerSystem.debugState();
+});
+document.body.appendChild(debugBtn);
         }
+  
 
         // Initialize the application
         async function initApp() {
