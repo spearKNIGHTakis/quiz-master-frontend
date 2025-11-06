@@ -583,38 +583,40 @@
                             </div>
                         </div>
 
-                        <!-- Multiplayer Lobby Screen -->
-                        <div id="multiplayer-lobby" class="d-none">
-                            <div class="d-flex justify-content-between align-items-center mb-4">
-                                <button id="leave-room-btn" class="btn btn-outline-danger">
-                                    <i class="fas fa-door-open me-2"></i>Leave Room
-                                </button>
-                                <h2 class="mb-0">Game Lobby</h2>
-                                <div class="text-end">
-                                    <div class="fw-bold">Room: <span id="room-code" class="badge bg-primary">----</span></div>
-                                    <small class="text-muted" id="player-count">0 players</small>
-                                </div>
-                            </div>
-                            
-                            <div class="card mb-4">
-                                <div class="card-header">
-                                    <h5 class="mb-0"><i class="fas fa-users me-2"></i>Players</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div id="players-list">
-                                        <!-- Players will be dynamically loaded here -->
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="text-center">
-                                <button id="start-game-btn" class="btn btn-success btn-lg" style="display: none;">
-                                    <i class="fas fa-play me-2"></i>Start Game
-                                </button>
-                                <p class="text-muted mt-2" id="start-game-hint">Waiting for players to join...</p>
-                            </div>
-                        </div>
-
+                       <!-- In the multiplayer-lobby section of index.html -->
+<div id="multiplayer-lobby" class="d-none">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <button id="leave-room-btn" class="btn btn-outline-danger">
+            <i class="fas fa-door-open me-2"></i>Leave Room
+        </button>
+        <h2 class="mb-0">Game Lobby</h2>
+        <div class="text-end">
+            <div class="fw-bold">Room: <span id="room-code" class="badge bg-primary">----</span></div>
+            <small class="text-muted" id="player-count">0 players</small>
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-users me-2"></i>Players</h5>
+            <button id="toggle-ready-btn" class="btn btn-outline-primary btn-sm">
+                <i class="fas fa-check me-1"></i>Ready
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="players-list">
+                <!-- Real players will appear here as they join -->
+            </div>
+        </div>
+    </div>
+    
+    <div class="text-center">
+        <button id="start-game-btn" class="btn btn-success btn-lg" style="display: none;">
+            <i class="fas fa-play me-2"></i>Start Game
+        </button>
+        <p class="text-muted mt-2" id="start-game-hint">Share the room code with other players to begin</p>
+    </div>
+</div>
                         <!-- Single Player Quiz Screen -->
                         <div id="quiz-screen" class="d-none">
                             <div class="d-flex justify-content-between align-items-center mb-4">
@@ -1423,34 +1425,32 @@
                     chatSystem.addSystemMessage('Connection lost. Using local multiplayer mode.', 'multiplayer-lobby');
                 }
             },
+            // In connectionManager - ensure proper real player handling
+handle_playerJoined(data) {
+    console.log('👤 Real player joined:', data);
+    
+    if (this.currentRoom && this.currentRoom.code === data.roomCode) {
+        // Check if player already exists
+        const existingPlayer = this.players.find(p => p.id === data.id);
+        if (!existingPlayer) {
+            // Add new REAL player to the list
+            this.players.push({
+                id: data.id,
+                name: data.name,
+                avatar: data.avatar,
+                score: data.score || 0,
+                isHost: data.isHost || false,
+                hasAnswered: false,
+                ready: data.ready || false
+            });
             
-            simulatePlayerJoin(roomCode) {
-                const demoPlayers = [
-                    { id: 'demo_player_2', name: 'Ama', avatar: '👩‍🎓' },
-                    { id: 'demo_player_3', name: 'Kofi', avatar: '👨‍💼' },
-                    { id: 'demo_player_4', name: 'Esi', avatar: '👩‍🔬' }
-                ];
-                
-                demoPlayers.forEach((player, index) => {
-                    setTimeout(() => {
-                        multiplayerSystem.handlePlayerJoined({
-                            roomCode: roomCode,
-                            player: {
-                                ...player,
-                                score: 0,
-                                isHost: false,
-                                hasAnswered: false
-                            }
-                        });
-                    }, (index + 1) * 3000);
-                });
-            },
-            
-            // Other event handlers
-            handle_playerJoined(data) {
-                multiplayerSystem.handlePlayerJoined(data);
-            },
-            
+            this.updateLobbyDisplay();
+            categoryManager.showSuccess(`${data.name} joined the room!`);
+            chatSystem.addSystemMessage(`${data.name} joined the game`, 'multiplayer-lobby');
+        }
+    }
+},
+          
             handle_playerLeft(data) {
                 multiplayerSystem.handlePlayerLeft({ playerId: data, playerName: 'Player' });
             },
@@ -1935,8 +1935,11 @@
                         this.showCategorySelection();
                     });
                 }
+                
             },
             
+          
+
             selectCategory(categoryId) {
                 document.querySelectorAll('.category-card').forEach(card => {
                     card.classList.remove('selected', 'border-primary');
