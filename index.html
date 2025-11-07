@@ -513,7 +513,9 @@
 console.log('🚀 Loading QuizMaster JavaScript...');
 
 // Configuration - Use relative URL for same-domain deployment
-const BACKEND_URL = 'https://quiz-app-backend-3g8p.onrender.com';
+const BACKEND_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:3000'
+  : 'https://your-backend-url.onrender.com';
 const SOCKET_URL = BACKEND_URL;
 const API_URL = `${BACKEND_URL}/api`;
 
@@ -795,6 +797,11 @@ const connectionManager = {
                 uiManager.showError('Connection failed. Please check your internet connection.');
             });
             
+            connectionManager.socket.on('connect_error', (error) => {
+    console.error('Connection error:', error);
+    this.setConnectionStatus('disconnected');
+    uiManager.showError('Failed to connect to server. Please refresh the page.');
+});
             // Set up event listeners
             this.setupSocketListeners();
             
@@ -1861,6 +1868,8 @@ const multiplayerSystem = {
             buttonManager.setLoading(startBtn, false, 'Start Game');
         }
     },
+
+    
 
     // Gameplay
     loadQuestion(questionIndex) {
